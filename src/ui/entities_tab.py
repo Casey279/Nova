@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QPu
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtCore import Qt
 from database_manager import DatabaseManager
+from pathlib import Path
 
 class EntityDialog(QDialog):
     def __init__(self, parent=None, entity_data=None):
@@ -63,14 +64,20 @@ class EntityDialog(QDialog):
         return data
 
 class EntitiesTab(QWidget):
-    def __init__(self, db_path):
+    def __init__(self,
+                 db_path: str | None = None,
+                 project_root: Path | None = None):
         super().__init__()
-        self.db_path = db_path
-        self.db_manager = DatabaseManager(db_path)
-        self.current_entity_id = None
-        self.vitals_labels = {}  # Initialize vitals_labels dictionary
+        self.db_path      = db_path
+        self.project_root = Path(project_root) if project_root else None
+        self.db_manager   = (DatabaseManager(db_path, project_root)
+                             if db_path and project_root else None)
         self.initUI()
-        self.load_entities()
+
+    def set_db_context(self, db_manager, project_root: Path):
+        self.db_manager   = db_manager
+        self.project_root = project_root
+        # if you have a reload/refresh method, call it here
 
     def initUI(self):
         layout = QHBoxLayout(self)
