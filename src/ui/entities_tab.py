@@ -1,558 +1,361 @@
 # File: entities_tab.py
 
+import sys
 import os
-import sqlite3
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, 
-                           QLabel, QLineEdit, QTextEdit, QFormLayout, QScrollArea, 
-                           QSplitter, QListWidgetItem, QFileDialog, QMessageBox, QFrame,
-                           QDialog, QDialogButtonBox)
-from PyQt5.QtGui import QFont, QPixmap
-from PyQt5.QtCore import Qt
-from database_manager import DatabaseManager
-from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from services import EntityService, DatabaseError
+from ui.components import BaseTab
 
-class EntityDialog(QDialog):
-    def __init__(self, parent=None, entity_data=None):
-        super().__init__(parent)
-        self.entity_data = entity_data
-        self.initUI()
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTableWidget, 
+                            QTableWidgetItem, QHeaderView, QAbstractItemView, QGroupBox, 
+                            QLabel, QLineEdit, QPushButton, QTextEdit, QComboBox, QMenu, 
+                            QAction, QMessageBox, QListWidget, QListWidgetItem, QInputDialog)
+from PyQt5.QtCore import Qt, pyqtSignal
 
-    def initUI(self):
-        self.setWindowTitle("Entity Details")
-        layout = QVBoxLayout(self)
 
-        # Entity details form
-        form_layout = QFormLayout()
-
-        self.fields = {}
-        # Basic fields
-        for field in ['DisplayName', 'Name', 'Aliases', 'Type', 'EstablishedDate', 'Affiliation']:
-            self.fields[field] = QLineEdit()
-            if self.entity_data:
-                self.fields[field].setText(str(self.entity_data.get(field, '')))
-            form_layout.addRow(field, self.fields[field])
-
-        # TextEdit fields for longer content
-        for field in ['Description', 'Summary']:
-            self.fields[field] = QTextEdit()
-            if self.entity_data:
-                self.fields[field].setPlainText(str(self.entity_data.get(field, '')))
-            form_layout.addRow(field, self.fields[field])
-
-        layout.addLayout(form_layout)
-
-        # Buttons
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def get_entity_data(self):
-        data = {}
-        for field, widget in self.fields.items():
-            if isinstance(widget, QLineEdit):
-                data[field] = widget.text()
-            else:  # QTextEdit
-                data[field] = widget.toPlainText()
-        
-        if self.entity_data and 'ImagePath' in self.entity_data:
-            data['ImagePath'] = self.entity_data['ImagePath']
-        else:
-            data['ImagePath'] = None
-            
-        # Don't include KnownMembers in the data as it's handled separately
-        return data
-
-class EntitiesTab(QWidget):
-    def __init__(self,
-                 db_path: str | None = None,
-                 project_root: Path | None = None):
-        super().__init__()
-        self.db_path      = db_path
-        self.project_root = Path(project_root) if project_root else None
-        self.db_manager   = (DatabaseManager(db_path, project_root)
-                             if db_path and project_root else None)
-        self.initUI()
-
-    def set_db_context(self, db_manager, project_root: Path):
-        self.db_manager   = db_manager
-        self.project_root = project_root
-        # if you have a reload/refresh method, call it here
-
-    def initUI(self):
-        layout = QHBoxLayout(self)
-        self.splitter = QSplitter(Qt.Horizontal)
-
-        # Left panel - Entity list
-        left_panel = self.create_left_panel()
-        self.splitter.addWidget(left_panel)
-
-        # Middle panel - Entity details
-        middle_panel = self.create_middle_panel()
-        self.splitter.addWidget(middle_panel)
-
-        # Right panel - Associated articles
-        right_panel = self.create_right_panel()
-        self.splitter.addWidget(right_panel)
-
-        layout.addWidget(self.splitter)
-
-        # Set initial sizes
-        self.splitter.setSizes([200, 400, 200])
-
-    def create_left_panel(self):
-        left_panel = QWidget()
-        layout = QVBoxLayout(left_panel)
-
-        # Entity list
-        self.entity_list = QListWidget()
-        self.entity_list.itemClicked.connect(self.display_entity_details)
-        layout.addWidget(self.entity_list)
-
-        # Add and Delete buttons
-        add_button = QPushButton("Add New Entity")
-        add_button.clicked.connect(self.add_new_entity)
-        layout.addWidget(add_button)
-
-        delete_button = QPushButton("Delete Entity")
-        delete_button.clicked.connect(self.delete_entity)
-        layout.addWidget(delete_button)
-
-        return left_panel
-
-    def create_middle_panel(self):
-        middle_panel = QWidget()
-        layout = QVBoxLayout(middle_panel)
-
-        # Entity Name at the top
-        self.entity_name_label = QLabel()
-        self.entity_name_label.setAlignment(Qt.AlignCenter)
-        self.entity_name_label.setFont(QFont("Arial", 16, QFont.Bold))
-        layout.addWidget(self.entity_name_label)
-
-        # Upper Section: Image and Vitals
-        upper_section = QFrame()
-        upper_section.setFrameStyle(QFrame.Box | QFrame.Raised)
-        upper_section.setLineWidth(2)
-        upper_layout = QHBoxLayout(upper_section)
-
-        # Image Section
-        image_section = self.create_image_section()
-        upper_layout.addWidget(image_section)
-
-        # Vitals Section
-        vitals_section = self.create_vitals_section()  # New method for vitals
-        upper_layout.addWidget(vitals_section)
-
-        layout.addWidget(upper_section)
-
-        # Lower Section: Additional Information
-        lower_section = QScrollArea()
-        lower_section.setWidgetResizable(True)
-        lower_widget = QWidget()
-        self.lower_layout = QVBoxLayout(lower_widget)
-        lower_section.setWidget(lower_widget)
-        layout.addWidget(lower_section)
-
-        button_layout = QHBoxLayout()
-        
-        self.edit_entity_button = QPushButton("Edit Entity")
-        self.edit_entity_button.clicked.connect(self.edit_entity)
-        button_layout.addWidget(self.edit_entity_button)
-
-        self.mark_reviewed_button = QPushButton("Mark as Reviewed")
-        self.mark_reviewed_button.clicked.connect(self.mark_entity_reviewed)
-        self.mark_reviewed_button.setEnabled(False)
-        button_layout.addWidget(self.mark_reviewed_button)
-
-        layout.addLayout(button_layout)
-
-        return middle_panel
-
-    def create_image_section(self):
-        image_widget = QWidget()
-        layout = QVBoxLayout(image_widget)
-
-        self.image_label = QLabel()
-        self.image_label.setFixedSize(200, 200)
-        layout.addWidget(self.image_label)
-
-        change_photo_button = QPushButton("Change Photo")
-        change_photo_button.clicked.connect(self.change_photo)
-        layout.addWidget(change_photo_button)
-
-        return image_widget
+class EntitiesTab(BaseTab):
+    """
+    Tab for managing entity information in the database.
+    Entities can be events, organizations, or other notable items.
+    Inherits from BaseTab to use the standardized three-panel layout.
+    """
+    view_event_signal = pyqtSignal(int)  # Event ID to view
+    edit_event_signal = pyqtSignal(int)  # Event ID to edit
     
-    def create_vitals_section(self):
-        vitals_widget = QWidget()
-        layout = QFormLayout(vitals_widget)
-        layout.setVerticalSpacing(10)
-
-        fields = [
-            ('Name', 'Name'),
-            ('Aliases', 'Aliases'),
-            ('Type', 'Type'),
-            ('Established Date', 'EstablishedDate'),
-            ('Dissolved Date', 'DissolvedDate'),
-            ('Affiliation', 'Affiliation')
+    def __init__(self, db_path, parent=None):
+        """
+        Initialize the entities tab.
+        
+        Args:
+            db_path (str): Path to the database
+            parent (QWidget, optional): Parent widget
+        """
+        # Define tab-specific properties
+        self.table_headers = ["ID", "Name", "Type", "Start Date", "End Date", "Aliases", "Description"]
+        
+        self.detail_fields = [
+            {'name': 'name', 'label': 'Name:', 'type': 'text'},
+            {'name': 'entity_type', 'label': 'Type:', 'type': 'text'},
+            {'name': 'start_date', 'label': 'Start Date:', 'type': 'text'},
+            {'name': 'end_date', 'label': 'End Date:', 'type': 'text'},
+            {'name': 'aliases', 'label': 'Aliases:', 'type': 'text'},
+            {'name': 'description', 'label': 'Description:', 'type': 'textarea'},
+            {'name': 'source', 'label': 'Source:', 'type': 'text'}
         ]
-
-        for label, field in fields:
-            field_label = QLabel(f"{label}:")
-            field_label.setFont(QFont("Arial", 10, QFont.Bold))
-
-            if label == 'Aliases':
-                # Multi-line field
-                self.vitals_labels[field] = QTextEdit()
-                self.vitals_labels[field].setReadOnly(True)
-                self.vitals_labels[field].setMaximumHeight(40)
-                layout.addRow(field_label, self.vitals_labels[field])
-            else:
-                # Single-line field
-                self.vitals_labels[field] = QLabel()
-                self.vitals_labels[field].setWordWrap(True)
-                layout.addRow(field_label, self.vitals_labels[field])
-
-        return vitals_widget
-
-
-    def create_right_panel(self):
-        right_panel = QWidget()
-        layout = QVBoxLayout(right_panel)
-
-        # Associated Articles section
-        layout.addWidget(QLabel("Associated Articles:"))
-
-        self.article_list = QListWidget()
-        self.article_list.itemClicked.connect(self.display_article_content)
-        layout.addWidget(self.article_list)
-
-        # Date Filtering
-        filter_layout = QVBoxLayout()
-        filter_label = QLabel("Filter Articles by Date:")
-        filter_layout.addWidget(filter_label)
-
-        # Start Date Section
-        start_date_layout = QHBoxLayout()
-        start_date_label = QLabel("Start Date:")
-        start_date_layout.addWidget(start_date_label)
-
-        self.start_year_edit = QLineEdit()
-        self.start_year_edit.setPlaceholderText("YYYY")
-        self.start_year_edit.setFixedWidth(60)
-        self.start_month_edit = QLineEdit()
-        self.start_month_edit.setPlaceholderText("MM")
-        self.start_month_edit.setFixedWidth(40)
-        self.start_day_edit = QLineEdit()
-        self.start_day_edit.setPlaceholderText("DD")
-        self.start_day_edit.setFixedWidth(40)
         
-        start_date_layout.addWidget(self.start_year_edit)
-        start_date_layout.addWidget(self.start_month_edit)
-        start_date_layout.addWidget(self.start_day_edit)
-        filter_layout.addLayout(start_date_layout)
-
-        # End Date Section
-        end_date_layout = QHBoxLayout()
-        end_date_label = QLabel("End Date:")
-        end_date_layout.addWidget(end_date_label)
-
-        self.end_year_edit = QLineEdit()
-        self.end_year_edit.setPlaceholderText("YYYY")
-        self.end_year_edit.setFixedWidth(60)
-        self.end_month_edit = QLineEdit()
-        self.end_month_edit.setPlaceholderText("MM")
-        self.end_month_edit.setFixedWidth(40)
-        self.end_day_edit = QLineEdit()
-        self.end_day_edit.setPlaceholderText("DD")
-        self.end_day_edit.setFixedWidth(40)
+        self.search_filters = ["All", "Name", "Type", "Aliases", "Description", "Start Date", "End Date", "Source"]
         
-        end_date_layout.addWidget(self.end_year_edit)
-        end_date_layout.addWidget(self.end_month_edit)
-        end_date_layout.addWidget(self.end_day_edit)
-        filter_layout.addLayout(end_date_layout)
-
-        # Filter Buttons
-        apply_filter_button = QPushButton("Apply Date Filter")
-        apply_filter_button.clicked.connect(self.apply_date_filter)
-        filter_layout.addWidget(apply_filter_button)
-
-        clear_filter_button = QPushButton("Clear Filter")
-        clear_filter_button.clicked.connect(self.clear_date_filter)
-        filter_layout.addWidget(clear_filter_button)
-
-        layout.addLayout(filter_layout)
-
-        # Article Text Viewer
-        self.article_text_view = QTextEdit()
-        self.article_text_view.setReadOnly(True)
-        layout.addWidget(self.article_text_view)
-
-        # Clear Viewer Button
-        clear_viewer_button = QPushButton("Clear Viewer")
-        clear_viewer_button.clicked.connect(self.clear_viewer)
-        layout.addWidget(clear_viewer_button)
-
-        return right_panel
-
-    def mark_entity_reviewed(self):
-        if not self.current_entity_id:
-            return
-            
-        reply = QMessageBox.question(
-            self,
-            "Mark as Reviewed",
-            "Are you sure this entity's information is complete and correct?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+        # Create entity service
+        self.entity_service = EntityService(db_path)
         
-        if reply == QMessageBox.Yes:
-            self.db_manager.update_entity_status(self.current_entity_id, 'reviewed')
-            self.review_status_label.hide()
-            self.mark_reviewed_button.setEnabled(False)
-            
-            # Refresh the entity list
-            self.load_entities()
-            
-            # Reselect the current entity
-            for i in range(self.entity_list.count()):
-                if self.entity_list.item(i).data(Qt.UserRole) == self.current_entity_id:
-                    self.entity_list.setCurrentRow(i)
-                    break
-            
-            QMessageBox.information(self, "Success", "Entity marked as reviewed.")
-
-
-    def display_entity_details(self, item):
-        previous_entity_id = self.current_entity_id
-        self.current_entity_id = item.data(Qt.UserRole)
-        entity_data = self.db_manager.get_entity_by_id(self.current_entity_id)
-
-        if entity_data:
-            # Update entity name at the top
-            self.entity_name_label.setText(entity_data['DisplayName'])
-
-            # Clear the image label first, then update image if available
-            self.image_label.clear()
-            if entity_data.get('ImagePath'):
-                pixmap = QPixmap(entity_data['ImagePath'])
-                if not pixmap.isNull():
-                    self.image_label.setPixmap(pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                else:
-                    self.image_label.setText("No Image")
-            else:
-                self.image_label.setText("No Image")
-
-            # Update vitals section fields using `vitals_labels`
-            for label_name, widget in self.vitals_labels.items():
-                widget.clear()
-                widget.setText(entity_data.get(label_name, '') if isinstance(widget, QLabel) else entity_data.get(label_name, ''))
-            
-            # Clear previous lower section and add additional information
-            self.clear_layout(self.lower_layout)
-            self.add_additional_fields(self.lower_layout, entity_data)
-
-            # Load associated articles
-            self.load_associated_articles()
-
-
-
-
-    def add_additional_fields(self, layout, entity_data):
-        # Clear the layout before adding new widgets
-        self.clear_layout(layout)
-
-        # Known Members Section
-        known_members_label = QLabel("<b>Known Members:</b>")
-        layout.addWidget(known_members_label)
-        known_members = entity_data.get('KnownMembers', 'No known members')
-        known_members_text = QLabel(known_members)
-        layout.addWidget(known_members_text)
+        # Initialize the base tab
+        super().__init__(db_path, parent)
         
-        # Description Section
-        description_label = QLabel("<b>Description:</b>")
-        layout.addWidget(description_label)
-        description_text = QTextEdit(entity_data.get('Description', ''))
-        description_text.setReadOnly(True)
-        layout.addWidget(description_text)
+        # Add filter by type button to the search panel if available
+        self.setup_type_filter()
 
-        # Summary Section
-        summary_label = QLabel("<b>Summary:</b>")
-        layout.addWidget(summary_label)
-        summary_text = QTextEdit(entity_data.get('Summary', ''))
-        summary_text.setReadOnly(True)
-        layout.addWidget(summary_text)
-
-    def load_entities(self):
-        self.entity_list.clear()
-        entities = self.db_manager.get_all_entities()
-        for entity in entities:
-            item = QListWidgetItem(entity['DisplayName'])
-            item.setData(Qt.UserRole, entity['EntityID'])
-            self.entity_list.addItem(item)
-
-    def add_new_entity(self):
-        dialog = EntityDialog(self)
-        if dialog.exec_():
-            entity_data = dialog.get_entity_data()
-            try:
-                # Insert the basic entity data
-                entity_id = self.db_manager.insert_entity(
-                    display_name=entity_data['DisplayName'],
-                    name=entity_data['Name'],
-                    aliases=entity_data['Aliases'],
-                    type_=entity_data['Type'],
-                    description=entity_data['Description'],
-                    established_date=entity_data['EstablishedDate'],
-                    affiliation=entity_data['Affiliation'],
-                    summary=entity_data['Summary'],
-                    image_path=entity_data.get('ImagePath')
-                )
+    def load_entity_events(self, entity_id):
+        """
+        Load events associated with a entity.
+        
+        Args:
+            entity_id: ID of the entity
+        """
+        try:
+            # Clear current events
+            self.events_list.clear()
+            self.view_event_button.setEnabled(False)
+            
+            # Get events for the entity
+            events = self.entity_service.get_entity_events(entity_id)
+            
+            # Add events to the list
+            for event in events:
+                event_id = event[0]
+                event_date = event[1] or "Unknown date"
+                event_title = event[2] or "Untitled event"
                 
-                # After inserting, update the KnownMembers field
-                if entity_id:
-                    self.db_manager.update_known_members(entity_id)
-                    
-                self.load_entities()
-                QMessageBox.information(self, "Success", "Entity added successfully!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to add entity: {str(e)}")
+                # Format date for display if available
+                if event_date:
+                    from ..utils import date_utils
+                    try:
+                        date_obj = date_utils.parse_date(event_date)
+                        if date_obj:
+                            event_date = date_utils.format_date(date_obj, "%b %d, %Y")
+                    except:
+                        pass
+                
+                # Create list item
+                item_text = f"{event_date}: {event_title}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, event_id)
+                
+                self.events_list.addItem(item)
+                
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error loading entity events: {str(e)}", QMessageBox.Critical)
 
-    def edit_entity(self):
-        if not self.current_entity_id:
-            QMessageBox.warning(self, "Warning", "Please select an entity to edit.")
-            return
+    def on_events_list_selection_changed(self):
+        """Handle selection changes in the events list."""
+        selected_items = self.events_list.selectedItems()
+        self.view_event_button.setEnabled(len(selected_items) > 0)
 
-        entity_data = self.db_manager.get_entity_by_id(self.current_entity_id)
-        if entity_data:
-            dialog = EntityDialog(self, entity_data)
-            if dialog.exec_():
-                updated_data = dialog.get_entity_data()
-                try:
-                    self.db_manager.update_entity(
-                        self.current_entity_id,
-                        updated_data
-                    )
-                    self.load_entities()
-                    
-                    # Refresh the display
-                    for i in range(self.entity_list.count()):
-                        if self.entity_list.item(i).data(Qt.UserRole) == self.current_entity_id:
-                            self.entity_list.setCurrentRow(i)
-                            break
-                            
-                    QMessageBox.information(self, "Success", "Entity updated successfully!")
-                except Exception as e:
-                    QMessageBox.critical(self, "Error", f"Failed to update entity: {str(e)}")
-
-    def delete_entity(self):
-        if not self.current_entity_id:
-            QMessageBox.warning(self, "Warning", "Please select an entity to delete.")
-            return
-
-        reply = QMessageBox.question(
-            self, 'Delete Entity', 
-            'Are you sure you want to delete this entity?',
-            QMessageBox.Yes | QMessageBox.No, 
-            QMessageBox.No
-        )
+    def on_event_double_clicked(self, item):
+        """
+        Handle double-click on an event item.
         
-        if reply == QMessageBox.Yes:
-            try:
-                self.db_manager.delete_entity(self.current_entity_id)
-                self.load_entities()
-                self.clear_entity_display()
-                QMessageBox.information(self, "Success", "Entity deleted successfully!")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to delete entity: {str(e)}")
-
-    def clear_entity_display(self):
-        """Clear all entity display fields"""
-        self.entity_name_label.clear()
-        self.image_label.clear()  # Clear image here to ensure it's reset
-        for label in self.vitals_labels.values():
-            if isinstance(label, QLabel):
-                label.clear()
-            elif isinstance(label, QTextEdit):
-                label.clear()
-        self.clear_layout(self.lower_layout)
-        self.article_list.clear()
-        self.article_text_view.clear()
-        self.current_entity_id = None
-
-
-    def change_photo(self):
-        if not self.current_entity_id:
-            QMessageBox.warning(self, "Warning", "Please select an entity first.")
-            return
-
-        file_name, _ = QFileDialog.getOpenFileName(
-            self, "Select Image", "", "Image Files (*.png *.jpg *.jpeg *.bmp)")
-        
-        if file_name:
-            try:
-                self.db_manager.update_entity_image(self.current_entity_id, file_name)
-                pixmap = QPixmap(file_name)
-                if not pixmap.isNull():
-                    self.image_label.setPixmap(
-                        pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                else:
-                    raise Exception("Failed to load the image")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to update image: {str(e)}")
-
-    def clear_layout(self, layout):
-        if layout is not None:
-            while layout.count():
-                item = layout.takeAt(0)
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-                else:
-                    self.clear_layout(item.layout())
-
-    def load_associated_articles(self):
-        self.article_list.clear()
-        if self.current_entity_id:
-            articles = self.db_manager.get_articles_by_entity(self.current_entity_id)
-            for article in articles:
-                item = QListWidgetItem(f"{article[0]} - {article[1]}")
-                item.setData(Qt.UserRole, article[2])
-                self.article_list.addItem(item)
-
-    def display_article_content(self, item):
+        Args:
+            item: The clicked item
+        """
         event_id = item.data(Qt.UserRole)
-        content = self.db_manager.get_event_content(event_id)
-        if content:
-            self.article_text_view.setText(content)
-        else:
-            self.article_text_view.setText("No content available for this article.")
+        if event_id:
+            self.edit_event_signal.emit(event_id)
 
-    def apply_date_filter(self):
-        if not self.current_entity_id:
+    def view_selected_event(self):
+        """View the selected event in the Events tab."""
+        selected_items = self.events_list.selectedItems()
+        if selected_items:
+            event_id = selected_items[0].data(Qt.UserRole)
+            if event_id:
+                self.view_event_signal.emit(event_id)        
+    
+    def setup_type_filter(self):
+        """Set up the entity type filter dropdown if applicable."""
+        # This is a placeholder for custom filtering by entity type
+        # In a real implementation, this would add a dropdown to filter by entity type
+        pass
+    
+    def load_data(self):
+        """Load all entities from the database."""
+        try:
+            data = self.entity_service.get_all_entities()
+            self.table_panel.populate_table(data)
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error loading entities: {str(e)}", QMessageBox.Critical)
+    
+    def on_search(self, search_text, filter_value):
+        """
+        Handle search requests.
+        
+        Args:
+            search_text (str): Text to search for
+            filter_value (str): Column to search in
+        """
+        if not search_text:
+            self.load_data()
             return
+        
+        try:
+            data = self.entity_service.search_entities(search_text, filter_value)
+            self.table_panel.populate_table(data)
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error searching entities: {str(e)}", QMessageBox.Critical)
+    
+    def on_item_selected(self, item_id):
+        """
+        Handle entity selection.
+        
+        Args:
+            item_id (int): ID of the selected entity
+        """
+        try:
+            entity_data = self.entity_service.get_entity_by_id(item_id)
+            if entity_data:
+                self.detail_panel.set_data(entity_data)
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error loading entity details: {str(e)}", QMessageBox.Critical)
+    
+    def on_save(self, field_data):
+        """
+        Handle saving entity details.
+        
+        Args:
+            field_data (dict): Field data to save
+        """
+        try:
+            if 'id' in field_data and field_data['id'] is not None:
+                # Update existing record
+                self.entity_service.update_entity(field_data['id'], field_data)
+                message = f"Entity '{field_data['name']}' updated successfully."
+            else:
+                # Insert new record
+                self.entity_service.create_entity(field_data)
+                message = f"Entity '{field_data['name']}' added successfully."
             
-        start_date = f"{self.start_year_edit.text()}-{self.start_month_edit.text()}-{self.start_day_edit.text()}"
-        end_date = f"{self.end_year_edit.text()}-{self.end_month_edit.text()}-{self.end_day_edit.text()}"
+            self.load_data()
+            self.show_message("Success", message)
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error saving entity: {str(e)}", QMessageBox.Critical)
+    
+    def on_delete(self, item_id):
+        """
+        Handle deleting an entity.
         
-        self.article_list.clear()
-        articles = self.db_manager.get_articles_by_entity_and_date(
-            self.current_entity_id, start_date, end_date)
+        Args:
+            item_id (int): ID of the entity to delete
+        """
+        try:
+            # Get entity data for confirmation message
+            entity_data = self.entity_service.get_entity_by_id(item_id)
+            
+            if not entity_data:
+                return
+            
+            entity_name = entity_data['name']
+            
+            # Confirm deletion
+            if not self.confirm_action("Confirm Deletion", 
+                                       f"Are you sure you want to delete '{entity_name}'?"):
+                return
+            
+            # Check for references in other tables
+            ref_count = self.entity_service.count_entity_references(item_id)
+            
+            if ref_count > 0:
+                if not self.confirm_action("References Exist", 
+                                          f"This entity is referenced in {ref_count} records. "
+                                          f"Deleting will remove all references as well. Continue?"):
+                    return
+                
+                # Delete entity with all references
+                self.entity_service.delete_entity_with_references(item_id)
+            else:
+                # Delete just the entity
+                self.entity_service.delete_entity(item_id)
+            
+            self.load_data()
+            self.detail_panel.clear_fields()
+            self.show_message("Success", f"Entity '{entity_name}' deleted successfully.")
         
-        for article in articles:
-            item = QListWidgetItem(f"{article[0]} - {article[1]}")
-            item.setData(Qt.UserRole, article[2])
-            self.article_list.addItem(item)
-
-    def clear_date_filter(self):
-        self.start_year_edit.clear()
-        self.start_month_edit.clear()
-        self.start_day_edit.clear()
-        self.end_year_edit.clear()
-        self.end_month_edit.clear()
-        self.end_day_edit.clear()
-        self.load_associated_articles()
-
-    def clear_viewer(self):
-        self.article_text_view.clear()    
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error deleting entity: {str(e)}", QMessageBox.Critical)
+    
+    def on_context_menu(self, position, item_id):
+        """
+        Show context menu for entity.
+        
+        Args:
+            position (QPoint): Position for the context menu
+            item_id (int): ID of the entity
+        """
+        menu = QMenu()
+        
+        # Get entity info
+        entity_data = self.entity_service.get_entity_by_id(item_id)
+        
+        if not entity_data:
+            return
+        
+        entity_name = entity_data['name']
+        entity_type = entity_data.get('entity_type', '')
+        
+        # Create menu actions
+        edit_action = QAction(f"Edit '{entity_name}'", self)
+        edit_action.triggered.connect(lambda: self.on_item_selected(item_id))
+        
+        delete_action = QAction(f"Delete '{entity_name}'", self)
+        delete_action.triggered.connect(lambda: self.on_delete(item_id))
+        
+        show_refs_action = QAction(f"Show references to '{entity_name}'", self)
+        show_refs_action.triggered.connect(lambda: self.show_references(item_id, entity_name))
+        
+        change_type_action = QAction(f"Change entity type", self)
+        change_type_action.triggered.connect(lambda: self.change_entity_type(item_id, entity_name, entity_type))
+        
+        # Add actions to menu
+        menu.addAction(edit_action)
+        menu.addAction(delete_action)
+        menu.addSeparator()
+        menu.addAction(show_refs_action)
+        menu.addAction(change_type_action)
+        
+        # Show the menu
+        menu.exec_(position)
+    
+    def show_references(self, entity_id, entity_name):
+        """
+        Show references to an entity.
+        
+        Args:
+            entity_id (int): ID of the entity
+            entity_name (str): Name of the entity for display
+        """
+        try:
+            refs = self.entity_service.get_entity_references(entity_id)
+            
+            if not refs:
+                self.show_message("References", f"No references found for '{entity_name}'.")
+                return
+            
+            # Format references for display
+            ref_text = f"References to '{entity_name}':\n\n"
+            for source, count in refs:
+                ref_text += f"• {source}: {count} mentions\n"
+            
+            # Show in a message box
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Entity References")
+            msg_box.setText(ref_text)
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.exec_()
+            
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error retrieving entity references: {str(e)}", QMessageBox.Critical)
+    
+    def change_entity_type(self, entity_id, entity_name, current_type):
+        """
+        Change the type of an entity.
+        
+        Args:
+            entity_id (int): ID of the entity
+            entity_name (str): Name of the entity
+            current_type (str): Current type of the entity
+        """
+        try:
+            # Get available entity types
+            entity_types = self.entity_service.get_entity_types()
+            
+            # Show input dialog for new type
+            new_type, ok = QInputDialog.getItem(
+                self,
+                "Change Entity Type",
+                f"Select new type for '{entity_name}':",
+                entity_types,
+                entity_types.index(current_type) if current_type in entity_types else 0,
+                True
+            )
+            
+            if ok and new_type:
+                # Update entity type
+                entity_data = self.entity_service.get_entity_by_id(entity_id)
+                entity_data['entity_type'] = new_type
+                
+                self.entity_service.update_entity(entity_id, entity_data)
+                self.load_data()
+                
+                # If the current entity is selected, refresh the detail view
+                if self.detail_panel.current_id == entity_id:
+                    self.on_item_selected(entity_id)
+                
+                self.show_message("Success", f"Entity type changed to '{new_type}'.")
+            
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error changing entity type: {str(e)}", QMessageBox.Critical)
+    
+    def filter_by_type(self, entity_type):
+        """
+        Filter entities by type.
+        
+        Args:
+            entity_type (str): Type to filter by
+        """
+        try:
+            if not entity_type or entity_type.lower() == "all":
+                self.load_data()
+                return
+            
+            data = self.entity_service.get_entities_by_type(entity_type)
+            self.table_panel.populate_table(data)
+            
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error filtering entities: {str(e)}", QMessageBox.Critical)

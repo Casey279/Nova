@@ -2,6 +2,8 @@
 
 import sys
 import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from services import BaseService, DatabaseError
 import cv2 
 import shutil
 import sqlite3
@@ -10,15 +12,17 @@ import re
 import numpy as np
 import anthropic
 from dotenv import load_dotenv
+from sqlite3 import Error
+from rich_completer import RichItemCompleter
 from PIL import Image, ImageEnhance
+from utils import date_utils
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTextEdit, QFileDialog, QLabel, QSplitter, QStyle,
                              QGraphicsView, QGraphicsScene, QMessageBox, QLineEdit, QListWidget, QDialog, QFormLayout,  
-                             QDialogButtonBox, QGroupBox, QSplitterHandle, QGridLayout, QSlider, QGraphicsRectItem, 
+                             QDialogButtonBox, QGroupBox, QSplitterHandle, QGridLayout, QSlider, QGraphicsRectItem, QCheckBox,
                              QGraphicsPixmapItem, QComboBox, QFrame, QApplication, QCompleter, QListWidgetItem, QStyledItemDelegate)
 from PyQt5.QtGui import (QPixmap, QPainter, QPen, QBrush, QColor, QPalette, QTextCharFormat, QTextCursor, QFont, QIcon, 
                          QStandardItem, QStandardItemModel)
-from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal, QRectF, QPoint, QStringListModel, QRect   
-from PIL import Image
+from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal, QRectF, QPoint, QStringListModel, QRect, QDate   
 from datetime import datetime
 from database_manager import DatabaseManager
 from enhanced_ocr import EnhancedOCRProcessor
@@ -488,9 +492,6 @@ class ArticleProcessor(QWidget):
 
         panel.setLayout(layout)
         return panel
-
-
-
 
     def create_names_section(self, title):
         section = QGroupBox(title)
@@ -1005,9 +1006,6 @@ class ArticleProcessor(QWidget):
             # Clear the input field after adding the tag
             input_widget.clear()
 
-
-
-
     def remove_name_tag(self, tag_container, category, name):
         tags_layout = getattr(self, f"{category}_tags_layout")
         tag_container.setParent(None)  # Remove the widget from the grid
@@ -1141,7 +1139,150 @@ class ArticleProcessor(QWidget):
         }
         return months.get(month.capitalize(), '00')  # Handles both full and abbreviated month names
 
+    def has_unsaved_data(self):
+        """
+        Check if there's unsaved data in the Article Processor.
+        
+        Returns:
+            True if there are unsaved changes, False otherwise
+        """
+        # Check if any field has been modified
+        # This is a simplified check - you may need more comprehensive logic
+        if self.title_edit.text() or self.event_date_edit.text() or self.description_edit.toPlainText():
+            return True
+        
+        # Check if any names have been added
+        if self.attached_names:
+            return True
+        
+        return False
 
+
+    def load_event_for_editing(self, event_id):
+        """
+        Load an event for editing.
+        
+        Args:
+            event_id: ID of the event to load
+        """
+        try:
+            # Clear current data
+            self.clear_form()
+            
+            # Create an EventService to fetch the event
+            from services import EventService
+            event_service = EventService(self.db_path)
+            
+            # Get event data
+            event_data = event_service.get_event_by_id(event_id)
+            
+            if not event_data:
+                self.show_message("Error", f"Event with ID {event_id} not found.", QMessageBox.Critical)
+                return
+            
+            # Populate form fields
+            self.title_edit.setText(event_data['title'])
+            self.description_edit.setPlainText(event_data['description'])
+            
+            # Set event date
+            if event_data['event_date']:
+                date_obj = date_utils.parse_date(event_data['event_date'])
+                if date_obj:
+                    self.event_date_edit.setDate(QDate(date_obj.year, date_obj.month, date_obj.day))
+            
+            # Set source
+            if event_data['source_id']:
+                # Find the source in the combo box
+                for i in range(self.source_combo.count()):
+                    source_id = self.source_combo.itemData(i)
+                    if source_id == event_data['source_id']:
+                        self.source_combo.setCurrentIndex(i)
+                        break
+            
+            # Set page number
+            if event_data['page_number']:
+                self.page_edit.setText(str(event_data['page_number']))
+            
+            # Set confidence and verification
+            if event_data['confidence']:
+                self.confidence_slider.setValue(int(event_data['confidence'] * 100))
+            
+            self.verified_check.setChecked(event_data['verified'])
+            
+            # Load associated entities using your existing method
+            self.load_associated_tags(event_id)
+            
+            # Set the current event ID for updating
+            self.current_event_id = event_id
+            
+            # Update UI state
+            self.update_ui_state()
+            
+            # Show success message
+            self.status_label.setText(f"Event {event_id} loaded for editing.")
+            
+        except Exception as e:
+            self.show_message("Error", f"Failed to load event: {str(e)}", QMessageBox.Critical)
+  
+
+
+    def clear_form(self):
+        """Clear all form fields and reset the form state."""
+        # Clear text fields
+        self.title_edit.clear()
+        self.description_edit.clear()
+        self.page_edit.clear()
+        
+        # Reset date to today
+        self.event_date_edit.setDate(QDate.currentDate())
+        
+        # Reset source combo
+        self.source_combo.setCurrentIndex(0)
+        
+        # Reset confidence and verification
+        self.confidence_slider.setValue(50)
+        self.verified_check.setChecked(False)
+        
+        # Clear attached names
+        self.attached_names = []
+        self.names_list.clear()
+        
+        # Clear current event ID
+        self.current_event_id = None
+        
+        # Reset changes flag
+        self.changes_made = False
+        
+        # Update UI state
+        self.update_ui_state()
+
+    def update_ui_state(self):
+        """Update the UI state based on current form data."""
+        # Enable/disable buttons based on form state
+        has_data = bool(self.title_edit.text() or self.description_edit.toPlainText())
+        self.save_button.setEnabled(has_data)
+        self.clear_button.setEnabled(has_data or bool(self.attached_names))
+        
+        # Update status label
+        if self.current_event_id:
+            self.status_label.setText(f"Editing event ID: {self.current_event_id}")
+        else:
+            self.status_label.setText("Creating new event")
+
+    def update_names_list_ui(self):
+        """Update the UI list of attached names."""
+        self.names_list.clear()
+        
+        for name_data in self.attached_names:
+            # Create list item with name and type
+            name_type = name_data['type'].capitalize()
+            item_text = f"{name_data['name']} ({name_type})"
+            
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, name_data)
+            
+            # Add remove button or X indicator (depending on your UI design)
+            self.names_list.addItem(item)            
 
     def reorganize_grid_layout(self, grid_layout):
         widgets = []

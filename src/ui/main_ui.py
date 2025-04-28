@@ -2,7 +2,7 @@
 
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTabWidget, QLabel, QSplitter, QPushButton, QTextEdit, 
                              QMessageBox)
@@ -19,8 +19,6 @@ from start_tab import StartTab
 from ui.research_import_tab import ResearchImportTab
 
 
-
-
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -28,6 +26,7 @@ class MainWindow(QWidget):
         self.db_manager = DatabaseManager(self.db_path)
         self.db_manager.add_status_column_to_events()
         self.db_manager.update_characters_table_structure()
+        self.events_tab = None
         self.initUI()
         
         # Connect StartTab signals
@@ -57,7 +56,6 @@ class MainWindow(QWidget):
         # Research-Import Tab
         self.research_import_tab = ResearchImportTab(self.db_path)
         self.tab_widget.addTab(self.research_import_tab, "Research Import")
-
 
         # Preprocessing Tabs
         self.preprocessing_tabs = QWidget()
@@ -141,6 +139,8 @@ class MainWindow(QWidget):
         layout.addWidget(preprocessing_sub_tabs)
         self.preprocessing_tabs.setLayout(layout)
 
+    # Update the create_main_tabs method to include connecting signals:
+
     def create_main_tabs(self):
         layout = QVBoxLayout()
         main_sub_tabs = QTabWidget()
@@ -159,8 +159,84 @@ class MainWindow(QWidget):
         # Connect tab switch signal
         main_sub_tabs.currentChanged.connect(self.on_tab_changed)
         
+        # Connect event signals
+        self.connect_event_signals()
+        
         layout.addWidget(main_sub_tabs)
         self.main_tabs.setLayout(layout)
+
+    # Add this after creating the tabs in create_main_tabs method in MainWindow:
+
+    def connect_event_signals(self):
+        """Connect all the event viewing and editing signals."""
+        # Connect edit signals from main tabs to article processor
+        self.characters_tab.edit_event_signal.connect(self.load_event_in_processor)
+        self.locations_tab.edit_event_signal.connect(self.load_event_in_processor)
+        self.entities_tab.edit_event_signal.connect(self.load_event_in_processor)
+        
+        # Connect view signals from main tabs to events tab
+        self.characters_tab.view_event_signal.connect(self.view_event_in_events_tab)
+        self.locations_tab.view_event_signal.connect(self.view_event_in_events_tab)
+        self.entities_tab.view_event_signal.connect(self.view_event_in_events_tab)
+        
+        # Connect edit signal from events tab to article processor
+        self.events_tab.edit_event_signal.connect(self.load_event_in_processor)
+
+    def view_event_in_events_tab(self, event_id):
+        """
+        View an event in the Events tab.
+        
+        Args:
+            event_id: ID of the event to view
+        """
+        # Switch to Main Tabs first
+        self.tab_widget.setCurrentWidget(self.main_tabs)
+        
+        # Find the tabwidget inside main_tabs
+        main_sub_tabs = self.main_tabs.findChild(QTabWidget)
+        if main_sub_tabs:
+            # Find the events tab
+            for i in range(main_sub_tabs.count()):
+                if main_sub_tabs.widget(i) == self.events_tab:
+                    # Switch to events tab
+                    main_sub_tabs.setCurrentIndex(i)
+                    break
+        
+        # View the specific event
+        self.events_tab.view_event(event_id)
+
+    def load_event_in_processor(self, event_id):
+        """
+        Load an event in the Article Processor tab for editing.
+        
+        Args:
+            event_id: ID of the event to load
+        """
+        # Check if there's unsaved data in Article Processor
+        if self.article_processor_tab.has_unsaved_data():
+            # Ask user if they want to discard changes
+            msg_box = QMessageBox()
+            msg_box.setWindowTitle("Unsaved Changes")
+            msg_box.setText("There are unsaved changes in the Article Processor.")
+            msg_box.setInformativeText("Do you want to discard these changes and load the selected event?")
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.No)
+            
+            response = msg_box.exec_()
+            
+            if response != QMessageBox.Yes:
+                return
+        
+        # Switch to the preprocessing tab widget
+        self.tab_widget.setCurrentWidget(self.preprocessing_tabs)
+        
+        # Now switch to the Article Processor tab within preprocessing
+        preprocessing_sub_tabs = self.preprocessing_tabs.findChild(QTabWidget)
+        if preprocessing_sub_tabs:
+            preprocessing_sub_tabs.setCurrentWidget(self.article_processor_tab)
+        
+        # Load the event for editing
+        self.article_processor_tab.load_event_for_editing(event_id)
 
     def on_tab_changed(self, index):
         """Refresh data when switching tabs, but check for unsaved changes first"""
@@ -168,7 +244,7 @@ class MainWindow(QWidget):
         current_tab = tab_widget.widget(index)
         
         # Check for unsaved changes in Article Processor
-        if hasattr(self, 'article_processor_tab') and self.article_processor_tab.changes_made:
+        if hasattr(self, 'article_processor_tab') and hasattr(self.article_processor_tab, 'changes_made') and self.article_processor_tab.changes_made:
             msg = QMessageBox.warning(
                 self,
                 "Unsaved Changes",
@@ -178,7 +254,10 @@ class MainWindow(QWidget):
             )
             if msg == QMessageBox.Yes:
                 # Switch back to the Article Processor tab
-                tab_widget.setCurrentIndex(tab_widget.indexOf(self.preprocessing_tabs))
+                self.tab_widget.setCurrentWidget(self.preprocessing_tabs)
+                preprocessing_sub_tabs = self.preprocessing_tabs.findChild(QTabWidget)
+                if preprocessing_sub_tabs:
+                    preprocessing_sub_tabs.setCurrentWidget(self.article_processor_tab)
                 return
         
         # Check for unsaved changes in current tab
@@ -236,7 +315,7 @@ class MainWindow(QWidget):
 
     def closeEvent(self, event):
         # If changes have been made, prompt the user before closing
-        if hasattr(self, 'article_processor_tab') and self.article_processor_tab.changes_made:
+        if hasattr(self, 'article_processor_tab') and hasattr(self.article_processor_tab, 'changes_made') and self.article_processor_tab.changes_made:
             reply = QMessageBox.question(
                 self, 'Unsaved Changes',
                 "You have unsaved changes. Are you sure you want to quit?",
@@ -276,69 +355,6 @@ class MainWindow(QWidget):
         splitter.setStretchFactor(1, 1)  # Allow movement of the second divider
 
         return splitter
-
-    def create_table_data_tabs(self):
-        layout = QVBoxLayout()
-
-        # Create a QTabWidget for the second row of tabs under "Table Data"
-        table_sub_tabs = QTabWidget()
-
-        # Create empty placeholders for now
-        table_sub_tabs.addTab(QWidget(), "Events Table")
-        table_sub_tabs.addTab(QWidget(), "Characters Table")
-        table_sub_tabs.addTab(QWidget(), "Locations Table")
-        table_sub_tabs.addTab(QWidget(), "Entities Table")
-
-        layout.addWidget(table_sub_tabs)
-        self.table_data_tabs.setLayout(layout)
-
-    def create_ai_assistant_tabs(self):
-        layout = QVBoxLayout()
-        ai_sub_tabs = QTabWidget()
-        
-        # Existing tabs
-        ai_sub_tabs.addTab(QWidget(), "General Query")
-        ai_sub_tabs.addTab(QWidget(), "Brainstorming")
-        ai_sub_tabs.addTab(QWidget(), "Plot Development")
-        
-        
-        layout.addWidget(ai_sub_tabs)
-        self.ai_assistant_tabs.setLayout(layout)
-
-    def closeEvent(self, event):
-        # If changes have been made, prompt the user before closing
-        if self.article_processor and self.article_processor.changes_made:
-            reply = QMessageBox.question(
-                self, 'Unsaved Changes',
-                "You have unsaved changes. Are you sure you want to quit?",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save
-            )
-
-            if reply == QMessageBox.Save:
-                self.article_processor.save_text_to_file()
-                event.accept()
-            elif reply == QMessageBox.Discard:
-                event.accept()
-            else:
-                event.ignore()
-        else:
-            event.accept()
-
-    def create_ai_assistant_tabs(self):
-        layout = QVBoxLayout()
-        ai_sub_tabs = QTabWidget()
-        
-        # Add the Brainstorming tab
-        brainstorming_tab = BrainstormingTab(self.db_path)
-        ai_sub_tabs.addTab(brainstorming_tab, "Brainstorming")
-        
-        # Other tabs as placeholders for now
-        ai_sub_tabs.addTab(QWidget(), "General Query")
-        ai_sub_tabs.addTab(QWidget(), "Plot Development")
-        
-        layout.addWidget(ai_sub_tabs)
-        self.ai_assistant_tabs.setLayout(layout)
 
     def update_window_title(self, project_name=None):
         """Update window title to reflect current project"""

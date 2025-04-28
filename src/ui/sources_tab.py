@@ -1,692 +1,324 @@
 # File: sources_tab.py
 
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QMessageBox, 
-                          QPushButton, QLineEdit, QSplitter, QFormLayout, QFileDialog, 
-                          QDialog, QComboBox, QDialogButtonBox, QFrame, QListWidgetItem,
-                          QTextEdit, QScrollArea)
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from services import SourceService, DatabaseError
+from ui.components import BaseTab
+
+from PyQt5.QtWidgets import (QMenu, QAction, QMessageBox, QTextEdit, QDialog, 
+                            QVBoxLayout, QDialogButtonBox, QFileDialog)
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap, QFont
-from database_manager import DatabaseManager
 
 
-class SourcesTab(QWidget):
-    def __init__(self, db_path):
-        super().__init__()
-        self.db_manager = DatabaseManager(db_path)
-        self.current_source_id = None
-        self.image_path = None
-        self.initUI()
-
-    def initUI(self):
-        layout = QHBoxLayout()
-        self.setLayout(layout)
-
-        splitter = QSplitter(Qt.Horizontal)
-        layout.addWidget(splitter)
-
-        left_panel = self.create_source_list_section()
-        splitter.addWidget(left_panel)
-
-        center_panel = self.create_source_details_section()
-        splitter.addWidget(center_panel)
-
-        right_panel = self.create_right_panel()
-        splitter.addWidget(right_panel)
-
-        splitter.setSizes([200, 400, 200])
-        self.load_sources_list()
-
-    def create_source_list_section(self):
-        left_panel = QWidget()
-        layout = QVBoxLayout(left_panel)
-
-        layout.addWidget(QLabel("Source List"))
+class SourcesTab(BaseTab):
+    """
+    Tab for managing source information in the database.
+    Sources include documents, articles, books, and other reference materials.
+    Inherits from BaseTab to use the standardized three-panel layout.
+    """
+    
+    def __init__(self, db_path, parent=None):
+        """
+        Initialize the sources tab.
         
-        self.source_list = QListWidget()
-        self.source_list.itemSelectionChanged.connect(self.on_source_selected)
-        layout.addWidget(self.source_list)
-
-        add_source_button = QPushButton("Add New Source")
-        add_source_button.clicked.connect(self.open_add_source_dialog)
-        layout.addWidget(add_source_button)
-
-        return left_panel
-
-    def create_source_details_section(self):
-        center_panel = QWidget()
-        layout = QVBoxLayout(center_panel)
-
-        # Status indicator
-        self.review_status_label = QLabel()
-        self.review_status_label.setStyleSheet("QLabel { color: red; }")
-        layout.addWidget(self.review_status_label)
-
-        # Source Name at the top
-        self.source_name_label = QLabel()
-        self.source_name_label.setAlignment(Qt.AlignCenter)
-        self.source_name_label.setFont(QFont("Arial", 16, QFont.Bold))
-        layout.addWidget(self.source_name_label)
-
-        # Upper Section: Image and Vitals
-        upper_section = QFrame()
-        upper_section.setFrameStyle(QFrame.Box | QFrame.Raised)
-        upper_section.setLineWidth(2)
-        upper_layout = QHBoxLayout(upper_section)
-
-        # Image Section
-        image_section = QWidget()
-        image_layout = QVBoxLayout(image_section)
+        Args:
+            db_path (str): Path to the database
+            parent (QWidget, optional): Parent widget
+        """
+        # Define tab-specific properties
+        self.table_headers = ["ID", "Title", "Author", "Type", "Publication Date", "URL"]
         
-        self.source_image_label = QLabel()
-        self.source_image_label.setFixedSize(200, 200)
-        self.source_image_label.setAlignment(Qt.AlignCenter)
-        image_layout.addWidget(self.source_image_label)
-
-        upload_button = QPushButton("Upload/Change Image")
-        upload_button.clicked.connect(self.upload_image)
-        image_layout.addWidget(upload_button)
+        self.detail_fields = [
+            {'name': 'title', 'label': 'Title:', 'type': 'text'},
+            {'name': 'author', 'label': 'Author:', 'type': 'text'},
+            {'name': 'source_type', 'label': 'Type:', 'type': 'text'},
+            {'name': 'publication_date', 'label': 'Publication Date:', 'type': 'text'},
+            {'name': 'url', 'label': 'URL:', 'type': 'text'}
+        ]
         
-        upper_layout.addWidget(image_section)
-
-        # Vitals Section
-        vitals_section = QWidget()
-        vitals_layout = QFormLayout(vitals_section)
-        vitals_layout.setVerticalSpacing(10)
-
-        self.source_type_label = QLabel()
-        self.aliases_text_edit = QTextEdit()
-        self.aliases_text_edit.setReadOnly(True)
-        self.aliases_text_edit.setMaximumHeight(60)
-        self.publisher_label = QLabel()
-        self.location_label = QLabel()
-        self.established_date_label = QLabel()
-        self.discontinued_date_label = QLabel()
-
-        vitals_layout.addRow("<b>Type:</b>", self.source_type_label)
-        vitals_layout.addRow("<b>Aliases:</b>", self.aliases_text_edit)
-        vitals_layout.addRow("<b>Publisher:</b>", self.publisher_label)
-        vitals_layout.addRow("<b>Location:</b>", self.location_label)
-        vitals_layout.addRow("<b>Established:</b>", self.established_date_label)
-        vitals_layout.addRow("<b>Discontinued:</b>", self.discontinued_date_label)
-
-        upper_layout.addWidget(vitals_section)
-        layout.addWidget(upper_section)
-
-        # Lower Section: Additional Information
-        lower_section = QScrollArea()
-        lower_section.setWidgetResizable(True)
-        lower_widget = QWidget()
-        lower_layout = QVBoxLayout(lower_widget)
-
-        # Political Affiliations
-        self.political_affiliations_text = QTextEdit()
-        self.political_affiliations_text.setReadOnly(True)
-        self.political_affiliations_text.setMaximumHeight(100)
-        political_title = QLabel("<b>Political Affiliations:</b>")
-        lower_layout.addWidget(political_title)
-        lower_layout.addWidget(self.political_affiliations_text)
-        lower_layout.addSpacing(10)
-
-        # Summary
-        self.summary_text = QTextEdit()
-        self.summary_text.setReadOnly(True)
-        self.summary_text.setMinimumHeight(150)
-        summary_title = QLabel("<b>Summary:</b>")
-        lower_layout.addWidget(summary_title)
-        lower_layout.addWidget(self.summary_text)
+        self.search_filters = ["All", "Title", "Author", "Type", "Publication Date", "URL", "Content"]
         
-        lower_section.setWidget(lower_widget)
-        layout.addWidget(lower_section)
-
-        # Action Buttons
-        button_layout = QHBoxLayout()
+        # Create source service
+        self.source_service = SourceService(db_path)
         
-        self.edit_button = QPushButton("Edit Source")
-        self.edit_button.clicked.connect(self.edit_source)
-        button_layout.addWidget(self.edit_button)
-
-        self.mark_reviewed_button = QPushButton("Mark as Reviewed")
-        self.mark_reviewed_button.clicked.connect(self.mark_source_reviewed)
-        self.mark_reviewed_button.setEnabled(False)
-        button_layout.addWidget(self.mark_reviewed_button)
-
-        layout.addLayout(button_layout)
-
-        return center_panel
-
-    def create_right_panel(self):
-        right_panel = QWidget()
-        right_layout = QVBoxLayout()
-
-        right_layout.addWidget(QLabel("Associated Articles:"))
-
-        self.article_list = QListWidget()
-        self.article_list.itemClicked.connect(self.display_article_content)
-        right_layout.addWidget(self.article_list)
-
-        # Date Filtering Section
-        filter_label = QLabel("Filter Articles by Date:")
-        right_layout.addWidget(filter_label)
-
-        date_filter_layout = QVBoxLayout()
-
-        # Start Date Section
-        start_date_layout = QHBoxLayout()
-        start_date_layout.addWidget(QLabel("Start Date:"))
-
-        self.start_year_edit = QLineEdit()
-        self.start_year_edit.setPlaceholderText("YYYY")
-        self.start_year_edit.setFixedWidth(60)
-        self.start_month_edit = QLineEdit()
-        self.start_month_edit.setPlaceholderText("MM")
-        self.start_month_edit.setFixedWidth(40)
-        self.start_day_edit = QLineEdit()
-        self.start_day_edit.setPlaceholderText("DD")
-        self.start_day_edit.setFixedWidth(40)
-
-        start_date_layout.addWidget(self.start_year_edit)
-        start_date_layout.addWidget(self.start_month_edit)
-        start_date_layout.addWidget(self.start_day_edit)
-        date_filter_layout.addLayout(start_date_layout)
-
-        # End Date Section
-        end_date_layout = QHBoxLayout()
-        end_date_layout.addWidget(QLabel("End Date:"))
-
-        self.end_year_edit = QLineEdit()
-        self.end_year_edit.setPlaceholderText("YYYY")
-        self.end_year_edit.setFixedWidth(60)
-        self.end_month_edit = QLineEdit()
-        self.end_month_edit.setPlaceholderText("MM")
-        self.end_month_edit.setFixedWidth(40)
-        self.end_day_edit = QLineEdit()
-        self.end_day_edit.setPlaceholderText("DD")
-        self.end_day_edit.setFixedWidth(40)
-
-        end_date_layout.addWidget(self.end_year_edit)
-        end_date_layout.addWidget(self.end_month_edit)
-        end_date_layout.addWidget(self.end_day_edit)
-        date_filter_layout.addLayout(end_date_layout)
-
-        # Filter Buttons
-        filter_buttons_layout = QHBoxLayout()
-        apply_filter_button = QPushButton("Apply Filter")
-        apply_filter_button.clicked.connect(self.apply_date_filter)
-        clear_filter_button = QPushButton("Clear Filter")
-        clear_filter_button.clicked.connect(self.clear_date_filter)
+        # Initialize the base tab
+        super().__init__(db_path, parent)
+    
+    def load_data(self):
+        """Load all sources from the database."""
+        try:
+            data = self.source_service.get_all_sources()
+            self.table_panel.populate_table(data)
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error loading sources: {str(e)}", QMessageBox.Critical)
+    
+    def on_search(self, search_text, filter_value):
+        """
+        Handle search requests.
         
-        filter_buttons_layout.addWidget(apply_filter_button)
-        filter_buttons_layout.addWidget(clear_filter_button)
-        date_filter_layout.addLayout(filter_buttons_layout)
-
-        right_layout.addLayout(date_filter_layout)
-
-        # Article Text Viewer
-        self.article_text_view = QTextEdit()
-        self.article_text_view.setReadOnly(True)
-        right_layout.addWidget(self.article_text_view)
-
-        # Clear Viewer Button
-        clear_viewer_button = QPushButton("Clear Viewer")
-        clear_viewer_button.clicked.connect(self.clear_viewer)
-        right_layout.addWidget(clear_viewer_button)
-
-        right_panel.setLayout(right_layout)
-        return right_panel
-
-    def load_sources_list(self):
-        self.source_list.clear()
-        sources = self.db_manager.get_all_sources()
-        for source in sources:
-            item = QListWidgetItem(f"{source['SourceName']}")
-            # Set different colors based on review status
-            if source['ReviewStatus'] == 'preliminary':
-                item.setForeground(Qt.gray)  # Gray for preliminary entries
-            elif source['ReviewStatus'] == 'needs_review':
-                item.setForeground(Qt.red)   # Red for needs review
-            item.setData(Qt.UserRole, source['SourceID'])
-            self.source_list.addItem(item)
-
-    def on_source_selected(self):
-        selected_item = self.source_list.currentItem()
-        if not selected_item:
+        Args:
+            search_text (str): Text to search for
+            filter_value (str): Column to search in
+        """
+        if not search_text:
+            self.load_data()
             return
-
-        source_id = selected_item.data(Qt.UserRole)
-        source_data = self.db_manager.get_source_by_id(source_id)
-
-        if source_data:
-            self.current_source_id = source_data['SourceID']
-            
-            # Update review status
-            if source_data.get('ReviewStatus') == 'needs_review':
-                self.review_status_label.setText("⚠️ Needs Review")
-                self.review_status_label.show()
-                self.mark_reviewed_button.setEnabled(True)
-            else:
-                self.review_status_label.hide()
-                self.mark_reviewed_button.setEnabled(False)
-            
-            # Update labels
-            self.source_name_label.setText(source_data['SourceName'])
-            
-            # Map source type to full description
-            source_type_mapping = {
-                'N': 'N - Newspaper',
-                'B': 'B - Book',
-                'J': 'J - Journal',
-                'M': 'M - Magazine',
-                'W': 'W - Wikipedia',
-                'D': 'D - Diary/Personal Journal',
-                'L': 'L - Letter/Correspondence',
-                'G': 'G - Government Document',
-                'C': 'C - Court Record',
-                'R': 'R - Religious Record',
-                'S': 'S - Ship Record/Manifest',
-                'P': 'P - Photograph',
-                'A': 'A - Academic Paper',
-                'T': 'T - Trade Publication',
-                'I': 'I - Interview Transcript',
-                'O': 'O - Other'
-            }
-            self.source_type_label.setText(source_type_mapping.get(source_data['SourceType'], source_data['SourceType']))
-            
-            # Format and display aliases
-            aliases_text = source_data.get('Aliases')
-            if aliases_text:
-                # Split by semicolon and join with newlines for better visibility
-                aliases_list = [alias.strip() for alias in aliases_text.split(';')]
-                self.aliases_text_edit.setPlainText('\n'.join(aliases_list))
-            else:
-                self.aliases_text_edit.setPlainText('N/A')
-            
-            self.publisher_label.setText(source_data.get('Publisher') or 'N/A')
-            self.location_label.setText(source_data.get('Location') or 'N/A')
-            self.established_date_label.setText(source_data.get('EstablishedDate') or 'N/A')
-            self.discontinued_date_label.setText(source_data.get('DiscontinuedDate') or 'N/A')
-            
-            # Update new fields
-            self.political_affiliations_text.setPlainText(source_data.get('PoliticalAffiliations') or 'N/A')
-            self.summary_text.setPlainText(source_data.get('Summary') or 'N/A')
-
-            if source_data.get('ImagePath'):
-                pixmap = QPixmap(source_data['ImagePath'])
-                self.source_image_label.setPixmap(pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            else:
-                self.source_image_label.setText("No Image Available")
-
-            # Load associated articles for the source
-            self.load_source_articles()
-
-    def mark_source_reviewed(self):
-        if not self.current_source_id:
-            return
-            
-        reply = QMessageBox.question(
-            self,
-            "Mark as Reviewed",
-            "Are you sure this source's information is complete and correct?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
         
-        if reply == QMessageBox.Yes:
-            self.db_manager.update_source_status(self.current_source_id, 'reviewed')
-            self.review_status_label.hide()
-            self.mark_reviewed_button.setEnabled(False)
-            
-            # Refresh the source list
-            self.load_sources_list()
-            
-            # Reselect the current source to maintain selection
-            for i in range(self.source_list.count()):
-                if self.source_list.item(i).data(Qt.UserRole) == self.current_source_id:
-                    self.source_list.setCurrentRow(i)
-                    break
-                    
-            QMessageBox.information(self, "Success", "Source marked as reviewed.")
-
-    def load_source_articles(self):
-        self.article_list.clear()
-        if self.current_source_id:
-            articles = self.db_manager.get_events_by_source(self.current_source_id)
-            for article in articles:
-                item = QListWidgetItem(f"{article['EventDate']} - {article['EventTitle']} (ID: {article['EventID']})")
-                item.setData(Qt.UserRole, article['EventID'])
-                self.article_list.addItem(item)
-
-    def apply_date_filter(self):
-        if not self.current_source_id:
-            return
-            
-        start_date = f"{self.start_year_edit.text()}-{self.start_month_edit.text()}-{self.start_day_edit.text()}"
-        end_date = f"{self.end_year_edit.text()}-{self.end_month_edit.text()}-{self.end_day_edit.text()}"
-
-        self.article_list.clear()
-        articles = self.db_manager.get_events_by_source_and_date(self.current_source_id, start_date, end_date)
+        try:
+            data = self.source_service.search_sources(search_text, filter_value)
+            self.table_panel.populate_table(data)
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error searching sources: {str(e)}", QMessageBox.Critical)
+    
+    def on_item_selected(self, item_id):
+        """
+        Handle source selection.
         
-        for article in articles:
-            item = QListWidgetItem(f"{article['EventDate']} - {article['EventTitle']} (ID: {article['EventID']})")
-            item.setData(Qt.UserRole, article['EventID'])
-            self.article_list.addItem(item)
-
-    def clear_date_filter(self):
-        self.start_year_edit.clear()
-        self.start_month_edit.clear()
-        self.start_day_edit.clear()
-        self.end_year_edit.clear()
-        self.end_month_edit.clear()
-        self.end_day_edit.clear()
-        
-        self.load_source_articles()
-
-    def clear_viewer(self):
-        self.article_text_view.clear()
-
-    def display_article_content(self, item):
-        event_id = item.data(Qt.UserRole)
-        event_content = self.db_manager.get_event_by_id(event_id)
-        
-        if event_content:
-            self.article_text_view.setText(
-                f"Title: {event_content['EventTitle']}\n"
-                f"Date: {event_content['EventDate']}\n\n"
-                f"{event_content['EventText']}"
-            )
-        else:
-            self.article_text_view.setText("Content not available")
-
-    def upload_image(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Image Files (*.png *.jpg *.jpeg)")
-        if file_name and self.current_source_id:
-            self.image_path = file_name
-            pixmap = QPixmap(file_name)
-            self.source_image_label.setPixmap(pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            
-            # Get current source data to preserve other fields
-            source_data = self.db_manager.get_source_by_id(self.current_source_id)
+        Args:
+            item_id (int): ID of the selected source
+        """
+        try:
+            source_data = self.source_service.get_source_by_id(item_id)
             if source_data:
-                self.db_manager.update_source(
-                    self.current_source_id,
-                    source_data['SourceName'],
-                    source_data['SourceType'],
-                    source_data.get('Abbreviation'),
-                    source_data.get('Publisher', ''),
-                    source_data.get('Location', ''),
-                    source_data.get('EstablishedDate', ''),
-                    source_data.get('DiscontinuedDate', ''),
-                    file_name,  # New image path
-                    source_data.get('Aliases', ''),
-                    source_data.get('PoliticalAffiliations', ''),
-                    source_data.get('Summary', '')
-                )
-
-    def edit_source(self):
-        if not self.current_source_id:
+                # Remove content field from data before setting in detail panel
+                # (Content is displayed separately via a "View Content" action)
+                if 'content' in source_data:
+                    source_data.pop('content')
+                
+                self.detail_panel.set_data(source_data)
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error loading source details: {str(e)}", QMessageBox.Critical)
+    
+    def on_save(self, field_data):
+        """
+        Handle saving source details.
+        
+        Args:
+            field_data (dict): Field data to save
+        """
+        try:
+            # Get content if the source already exists
+            content = None
+            if 'id' in field_data and field_data['id'] is not None:
+                existing_data = self.source_service.get_source_by_id(field_data['id'])
+                if existing_data and 'content' in existing_data:
+                    content = existing_data['content']
+            
+            # Add content to field_data
+            if content:
+                field_data['content'] = content
+            
+            if 'id' in field_data and field_data['id'] is not None:
+                # Update existing record
+                self.source_service.update_source(field_data['id'], field_data)
+                message = f"Source '{field_data['title']}' updated successfully."
+            else:
+                # Insert new record
+                field_data['content'] = field_data.get('content', '')
+                self.source_service.create_source(field_data)
+                message = f"Source '{field_data['title']}' added successfully."
+            
+            self.load_data()
+            self.show_message("Success", message)
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error saving source: {str(e)}", QMessageBox.Critical)
+    
+    def on_delete(self, item_id):
+        """
+        Handle deleting a source.
+        
+        Args:
+            item_id (int): ID of the source to delete
+        """
+        try:
+            # Get source data for confirmation message
+            source_data = self.source_service.get_source_by_id(item_id)
+            
+            if not source_data:
+                return
+            
+            source_title = source_data['title']
+            
+            # Confirm deletion
+            if not self.confirm_action("Confirm Deletion", 
+                                       f"Are you sure you want to delete '{source_title}'?"):
+                return
+            
+            # Check for references to this source
+            refs = self.source_service.get_source_references(item_id)
+            total_refs = sum(refs.values()) if refs else 0
+            
+            if total_refs > 0:
+                if not self.confirm_action("References Exist", 
+                                          f"This source is referenced in {total_refs} records. "
+                                          f"Deleting will remove all references as well. Continue?"):
+                    return
+                
+                # Delete source with all references
+                self.source_service.delete_source_with_references(item_id)
+            else:
+                # Delete just the source
+                self.source_service.delete_source(item_id)
+            
+            self.load_data()
+            self.detail_panel.clear_fields()
+            self.show_message("Success", f"Source '{source_title}' deleted successfully.")
+        
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error deleting source: {str(e)}", QMessageBox.Critical)
+    
+    def on_context_menu(self, position, item_id):
+        """
+        Show context menu for source.
+        
+        Args:
+            position (QPoint): Position for the context menu
+            item_id (int): ID of the source
+        """
+        menu = QMenu()
+        
+        # Get source info
+        source_data = self.source_service.get_source_by_id(item_id)
+        
+        if not source_data:
             return
+        
+        source_title = source_data['title']
+        
+        # Create menu actions
+        edit_action = QAction(f"Edit '{source_title}'", self)
+        edit_action.triggered.connect(lambda: self.on_item_selected(item_id))
+        
+        view_content_action = QAction(f"View Content", self)
+        view_content_action.triggered.connect(lambda: self.view_source_content(item_id, source_title))
+        
+        export_action = QAction(f"Export Content", self)
+        export_action.triggered.connect(lambda: self.export_source_content(item_id, source_title))
+        
+        delete_action = QAction(f"Delete '{source_title}'", self)
+        delete_action.triggered.connect(lambda: self.on_delete(item_id))
+        
+        show_refs_action = QAction(f"Show entity references", self)
+        show_refs_action.triggered.connect(lambda: self.show_entity_references(item_id, source_title))
+        
+        # Add actions to menu
+        menu.addAction(edit_action)
+        menu.addAction(view_content_action)
+        menu.addAction(export_action)
+        menu.addAction(delete_action)
+        menu.addSeparator()
+        menu.addAction(show_refs_action)
+        
+        # Show the menu
+        menu.exec_(position)
+    
+    def view_source_content(self, source_id, source_title):
+        """
+        View the content of a source.
+        
+        Args:
+            source_id (int): ID of the source
+            source_title (str): Title of the source
+        """
+        try:
+            content = self.source_service.get_source_content(source_id)
             
-        dialog = EditSourceDialog(self.db_manager, self.current_source_id)
-        if dialog.exec_() == QDialog.Accepted:
-            self.load_sources_list()
-            for i in range(self.source_list.count()):
-                if self.source_list.item(i).data(Qt.UserRole) == self.current_source_id:
-                    self.source_list.setCurrentRow(i)
-                    break
-
-    def open_add_source_dialog(self):
-        dialog = AddSourceDialog(self.db_manager)
-        if dialog.exec_() == QDialog.Accepted:
-            self.load_sources_list()
-
-class AddSourceDialog(QDialog):
-    def __init__(self, db_manager):
-        super().__init__()
-        self.db_manager = db_manager
-        self.initUI()
-
-    def initUI(self):
-        self.setWindowTitle("Add New Source")  # or "Edit Source" for EditSourceDialog
-        self.setGeometry(200, 200, 400, 600)  # Made taller to accommodate new fields
-
-        layout = QVBoxLayout(self)
-        form_layout = QFormLayout()
-
-        self.source_name_input = QLineEdit()
-        
-        self.source_type_input = QComboBox()
-        self.source_type_input.addItems([
-            "N - Newspaper",
-            "B - Book",
-            "J - Journal",
-            "M - Magazine",
-            "W - Wikipedia",
-            "D - Diary/Personal Journal",
-            "L - Letter/Correspondence",
-            "G - Government Document",
-            "C - Court Record",
-            "R - Religious Record",
-            "S - Ship Record/Manifest",
-            "P - Photograph",
-            "A - Academic Paper",
-            "T - Trade Publication",
-            "I - Interview Transcript",
-            "O - Other"
-        ])
-
-        # Source Code field
-        self.source_code_input = QLineEdit()
-        self.source_code_input.setPlaceholderText("PI, TNT, etc. Leave empty for uncommon sources")
-        
-        self.aliases_input = QTextEdit()
-        self.aliases_input.setPlaceholderText("Enter aliases separated by semicolons (e.g., Daily Intelligencer; Weekly Post-Intelligencer)")
-        self.aliases_input.setMaximumHeight(100)
-        
-        self.publisher_input = QLineEdit()
-        self.location_input = QLineEdit()
-        self.established_date_input = QLineEdit()
-        self.discontinued_date_input = QLineEdit()
-
-        # Political Affiliations field
-        self.political_affiliations_input = QTextEdit()
-        self.political_affiliations_input.setPlaceholderText("Enter political affiliations and biases...")
-        self.political_affiliations_input.setMaximumHeight(100)
-        
-        # Summary field
-        self.summary_input = QTextEdit()
-        self.summary_input.setPlaceholderText("Enter a summary of the source's history, significance, and any other relevant details...")
-        self.summary_input.setMinimumHeight(100)
-
-        form_layout.addRow("Source Name:", self.source_name_input)
-        form_layout.addRow("Source Type:", self.source_type_input)
-        form_layout.addRow("Source Code:", self.source_code_input)
-        form_layout.addRow("Aliases:", self.aliases_input)
-        form_layout.addRow("Publisher:", self.publisher_input)
-        form_layout.addRow("Location:", self.location_input)
-        form_layout.addRow("Established Date:", self.established_date_input)
-        form_layout.addRow("Discontinued Date:", self.discontinued_date_input)
-        form_layout.addRow("Political Affiliations:", self.political_affiliations_input)
-        form_layout.addRow("Summary:", self.summary_input)
-
-        layout.addLayout(form_layout)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.save_source)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def save_source(self):
-        source_type = self.source_type_input.currentText()[:1]
-        aliases = '; '.join([alias.strip() for alias in self.aliases_input.toPlainText().splitlines() if alias.strip()])
-        source_code = self.source_code_input.text().strip() or 'XX'  # Default to 'XX' if empty
-
-        self.db_manager.insert_source(
-            source_name=self.source_name_input.text(),
-            source_type=source_type,
-            publisher=self.publisher_input.text(),
-            location=self.location_input.text(),
-            established_date=self.established_date_input.text(),
-            discontinued_date=self.discontinued_date_input.text(),
-            image_path=None,
-            aliases=aliases,
-            review_status='reviewed',
-            source_code=source_code,
-            political_affiliations=self.political_affiliations_input.toPlainText(),
-            summary=self.summary_input.toPlainText()
-        )
-        self.accept()
-
-class EditSourceDialog(AddSourceDialog):
-    def __init__(self, db_manager, source_id):
-        self.source_id = source_id
-        super().__init__(db_manager)
-        self.setWindowTitle("Edit Source")
-        self.setGeometry(200, 200, 400, 500)  # Restore the geometry
-        self.load_source_data()
-
-    def initUI(self):
-        self.setWindowTitle("Add New Source")  # or "Edit Source" for EditSourceDialog
-        self.setGeometry(200, 200, 400, 600)  # Made taller to accommodate new fields
-
-        layout = QVBoxLayout(self)
-        form_layout = QFormLayout()
-
-        self.source_name_input = QLineEdit()
-        
-        self.source_type_input = QComboBox()
-        self.source_type_input.addItems([
-            "N - Newspaper",
-            "B - Book",
-            "J - Journal",
-            "M - Magazine",
-            "W - Wikipedia",
-            "D - Diary/Personal Journal",
-            "L - Letter/Correspondence",
-            "G - Government Document",
-            "C - Court Record",
-            "R - Religious Record",
-            "S - Ship Record/Manifest",
-            "P - Photograph",
-            "A - Academic Paper",
-            "T - Trade Publication",
-            "I - Interview Transcript",
-            "O - Other"
-        ])
-
-        # Source Code field
-        self.source_code_input = QLineEdit()
-        self.source_code_input.setPlaceholderText("PI, TNT, etc. Leave empty for uncommon sources")
-        
-        self.aliases_input = QTextEdit()
-        self.aliases_input.setPlaceholderText("Enter aliases separated by semicolons (e.g., Daily Intelligencer; Weekly Post-Intelligencer)")
-        self.aliases_input.setMaximumHeight(100)
-        
-        self.publisher_input = QLineEdit()
-        self.location_input = QLineEdit()
-        self.established_date_input = QLineEdit()
-        self.discontinued_date_input = QLineEdit()
-
-        # Political Affiliations field
-        self.political_affiliations_input = QTextEdit()
-        self.political_affiliations_input.setPlaceholderText("Enter political affiliations and biases...")
-        self.political_affiliations_input.setMaximumHeight(100)
-        
-        # Summary field
-        self.summary_input = QTextEdit()
-        self.summary_input.setPlaceholderText("Enter a summary of the source's history, significance, and any other relevant details...")
-        self.summary_input.setMinimumHeight(100)
-
-        form_layout.addRow("Source Name:", self.source_name_input)
-        form_layout.addRow("Source Type:", self.source_type_input)
-        form_layout.addRow("Source Code:", self.source_code_input)
-        form_layout.addRow("Aliases:", self.aliases_input)
-        form_layout.addRow("Publisher:", self.publisher_input)
-        form_layout.addRow("Location:", self.location_input)
-        form_layout.addRow("Established Date:", self.established_date_input)
-        form_layout.addRow("Discontinued Date:", self.discontinued_date_input)
-        form_layout.addRow("Political Affiliations:", self.political_affiliations_input)
-        form_layout.addRow("Summary:", self.summary_input)
-
-        layout.addLayout(form_layout)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.save_source)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def load_source_data(self):
-        source_data = self.db_manager.get_source_by_id(self.source_id)
-        if source_data:
-            self.source_name_input.setText(source_data['SourceName'])
+            if not content:
+                self.show_message("Content", "No content available for this source.", QMessageBox.Information)
+                return
             
-            # Fix the source type combo box handling
-            source_type = source_data['SourceType']
-            for i in range(self.source_type_input.count()):
-                if self.source_type_input.itemText(i).startswith(source_type):
-                    self.source_type_input.setCurrentIndex(i)
-                    break
+            # Create a dialog to display the content
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Content: {source_title}")
+            dialog.resize(800, 600)
             
-            # Load source code
-            self.source_code_input.setText(source_data.get('SourceCode', ''))
+            layout = QVBoxLayout(dialog)
             
-            # Load all other fields
-            aliases = source_data.get('Aliases', '')
-            if aliases:
-                aliases_list = [alias.strip() for alias in aliases.split(';')]
-                self.aliases_input.setPlainText('\n'.join(aliases_list))
+            text_edit = QTextEdit()
+            text_edit.setPlainText(content)
+            text_edit.setReadOnly(True)
             
-            self.publisher_input.setText(source_data.get('Publisher', '') or '')
-            self.location_input.setText(source_data.get('Location', '') or '')
-            self.established_date_input.setText(source_data.get('EstablishedDate', '') or '')
-            self.discontinued_date_input.setText(source_data.get('DiscontinuedDate', '') or '')
-            self.political_affiliations_input.setPlainText(source_data.get('PoliticalAffiliations', '') or '')
-            self.summary_input.setPlainText(source_data.get('Summary', '') or '')
-
-    def save_source(self):
-        print("Saving source edit...")  # Debug print
-        source_type = self.source_type_input.currentText()[:1]
-        aliases = '; '.join([alias.strip() for alias in self.aliases_input.toPlainText().splitlines() if alias.strip()])
-        source_code = self.source_code_input.text().strip() or 'XX'
-
-        self.db_manager.update_source(
-            source_id=self.source_id,  # Important - this is needed for update
-            source_name=self.source_name_input.text(),
-            source_type=source_type,
-            publisher=self.publisher_input.text(),
-            location=self.location_input.text(),
-            established_date=self.established_date_input.text(),
-            discontinued_date=self.discontinued_date_input.text(),
-            image_path=None,
-            aliases=aliases,
-            political_affiliations=self.political_affiliations_input.toPlainText(),
-            summary=self.summary_input.toPlainText(),
-            source_code=source_code
-        )
-        self.accept()
-
-    def mark_source_reviewed(self):
-        if not self.current_source_id:
-            return
+            buttons = QDialogButtonBox(QDialogButtonBox.Close)
+            buttons.rejected.connect(dialog.reject)
             
-        reply = QMessageBox.question(
-            self,
-            "Mark as Reviewed",
-            "Are you sure this source's information is complete and correct?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+            layout.addWidget(text_edit)
+            layout.addWidget(buttons)
+            
+            dialog.setLayout(layout)
+            dialog.exec_()
+            
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error retrieving source content: {str(e)}", QMessageBox.Critical)
+    
+    def export_source_content(self, source_id, source_title):
+        """
+        Export the content of a source to a file.
         
-        if reply == QMessageBox.Yes:
-            self.db_manager.update_source_status(self.current_source_id, 'reviewed')
-            self.review_status_label.hide()
-            self.mark_reviewed_button.setEnabled(False)
+        Args:
+            source_id (int): ID of the source
+            source_title (str): Title of the source
+        """
+        try:
+            content = self.source_service.get_source_content(source_id)
             
-            # Refresh the source list
-            self.load_sources_list()
+            if not content:
+                self.show_message("Export", "No content available to export.", QMessageBox.Information)
+                return
             
-            # Reselect the current source to maintain selection
-            for i in range(self.source_list.count()):
-                if self.source_list.item(i).data(Qt.UserRole) == self.current_source_id:
-                    self.source_list.setCurrentRow(i)
-                    break
-                    
-            QMessageBox.information(self, "Success", "Source marked as reviewed.")        
+            # Get file path for export
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Source Content",
+                f"{source_title}.txt",
+                "Text Files (*.txt);;All Files (*)"
+            )
+            
+            if not file_path:
+                return
+            
+            # Write content to file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            self.show_message("Export", f"Content exported successfully to {file_path}", QMessageBox.Information)
+            
+        except Exception as e:
+            self.show_message("Export Error", f"Error exporting content: {str(e)}", QMessageBox.Critical)
+    
+    def show_entity_references(self, source_id, source_title):
+        """
+        Show entities referenced in a source.
+        
+        Args:
+            source_id (int): ID of the source
+            source_title (str): Title of the source
+        """
+        try:
+            refs = self.source_service.get_source_references(source_id)
+            
+            if not refs:
+                self.show_message("References", f"No entity references found in '{source_title}'.", QMessageBox.Information)
+                return
+            
+            # Format references for display
+            ref_text = f"Entities referenced in '{source_title}':\n\n"
+            
+            if refs.get('characters', 0) > 0:
+                ref_text += f"• Characters: {refs['characters']} mentions\n"
+            
+            if refs.get('locations', 0) > 0:
+                ref_text += f"• Locations: {refs['locations']} mentions\n"
+            
+            if refs.get('entities', 0) > 0:
+                ref_text += f"• Other entities: {refs['entities']} mentions\n"
+            
+            # Show in a message box
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Entity References")
+            msg_box.setText(ref_text)
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.exec_()
+            
+        except DatabaseError as e:
+            self.show_message("Database Error", f"Error retrieving entity references: {str(e)}", QMessageBox.Critical)
