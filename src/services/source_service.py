@@ -10,6 +10,7 @@ class SourceService(BaseService):
     Sources include documents, articles, books, and other reference materials.
     """
     
+
     def get_all_sources(self) -> List[Tuple]:
         """
         Get all sources from the database.
@@ -21,10 +22,11 @@ class SourceService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT SourceID, Title, Aliases, Author, SourceType, PublicationDate, 
-                   Publisher, City, State, Country, URL, FileName, ImportDate, ReviewStatus
+            SELECT SourceID, SourceName, Aliases, SourceType, Abbreviation, 
+                Publisher, Location, EstablishedDate, DiscontinuedDate, ImagePath,
+                SourceCode, ReviewStatus, PoliticalAffiliations, Summary
             FROM Sources
-            ORDER BY Title
+            ORDER BY SourceName
         """
         return self.execute_query(query)
     
@@ -382,3 +384,121 @@ class SourceService(BaseService):
         Raises:
             DatabaseError: If query fails
         """
+        query = """
+            SELECT SourceID, Title, Aliases, Author, SourceType, PublicationDate, 
+                   Publisher, City, State, Country, URL, FileName, ImportDate, ReviewStatus
+            FROM Sources
+            WHERE Aliases LIKE ?
+            ORDER BY Title
+        """
+        return self.execute_query(query, (f"%{alias}%",))
+    
+    def check_alias_exists(self, alias: str, exclude_id: Optional[int] = None) -> bool:
+        """
+        Check if an alias already exists in the database.
+        
+        Args:
+            alias: Alias to check
+            exclude_id: Source ID to exclude from check (for updates)
+            
+        Returns:
+            True if alias exists, False otherwise
+            
+        Raises:
+            DatabaseError: If query fails
+        """
+        exclude_clause = "AND SourceID != ?" if exclude_id else ""
+        query = f"""
+            SELECT COUNT(*)
+            FROM Sources
+            WHERE Aliases LIKE ? {exclude_clause}
+        """
+        
+        params = (f"%{alias}%",)
+        if exclude_id:
+            params = params + (exclude_id,)
+            
+        results = self.execute_query(query, params)
+        return results[0][0] > 0 if results else False
+    
+    def add_alias_to_source(self, source_id: int, new_alias: str) -> bool:
+        """
+        Add a new alias to an existing source.
+        
+        Args:
+            source_id: ID of the source
+            new_alias: Alias to add
+            
+        Returns:
+            True if successful, False if source not found
+            
+        Raises:
+            DatabaseError: If operation fails
+        """
+        # Get current source data
+        source = self.get_source_by_id(source_id)
+        if not source:
+            return False
+            
+        # Parse current aliases
+        current_aliases = source.get('aliases', '')
+        alias_list = [a.strip() for a in current_aliases.split(',')] if current_aliases else []
+        
+        # Add new alias if not already present
+        if new_alias not in alias_list:
+            alias_list.append(new_alias)
+            updated_aliases = ', '.join(alias_list)
+            
+            # Update the source with new aliases
+            query = """
+                UPDATE Sources
+                SET Aliases = ?
+                WHERE SourceID = ?
+            """
+            self.execute_update(query, (updated_aliases, source_id))
+            return True
+            
+        return True  # Alias already exists, no update needed
+    
+    def get_source_by_filename(self, filename: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a source by filename.
+        
+        Args:
+            filename: Name of the file
+            
+        Returns:
+            Source data as a dictionary, or None if not found
+            
+        Raises:
+            DatabaseError: If query fails
+        """
+        query = """
+            SELECT SourceID, Title, Aliases, Author, SourceType, PublicationDate, 
+                   Publisher, City, State, Country, URL, Content, FileName, 
+                   ImportDate, ReviewStatus
+            FROM Sources
+            WHERE FileName = ?
+        """
+        results = self.execute_query(query, (filename,))
+        
+        if results:
+            return {
+                'id': results[0][0],
+                'title': results[0][1],
+                'aliases': results[0][2],
+                'author': results[0][3],
+                'source_type': results[0][4],
+                'publication_date': results[0][5],
+                'publisher': results[0][6],
+                'city': results[0][7],
+                'state': results[0][8],
+                'country': results[0][9],
+                'url': results[0][10],
+                'content': results[0][11],
+                'file_name': results[0][12],
+                'import_date': results[0][13],
+                'review_status': results[0][14]
+            }
+        
+        return None

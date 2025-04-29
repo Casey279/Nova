@@ -1,3 +1,5 @@
+# File: inspect_tables.py
+
 import sqlite3
 
 def inspect_table(db_path, table_name):
@@ -9,7 +11,7 @@ def inspect_table(db_path, table_name):
         cursor.execute(f"PRAGMA table_info({table_name})")
         structure = cursor.fetchall()
 
-        print(f"\nStructure of table '{table_name}':")
+        print(f"Structure of table '{table_name}':")
         for column in structure:
             print(f"Column: {column[1]}, Type: {column[2]}, Nullable: {'Yes' if column[3] == 0 else 'No'}, Default: {column[4]}")
 
@@ -17,7 +19,7 @@ def inspect_table(db_path, table_name):
         cursor.execute(f"SELECT * FROM {table_name} LIMIT 5")
         content = cursor.fetchall()
 
-        print(f"\nSample content of table '{table_name}' (first 5 rows):")
+        print(f"Sample content of table '{table_name}' (first {len(content)} rows):")
         for row in content:
             print(row)
 
@@ -28,41 +30,22 @@ def inspect_table(db_path, table_name):
         if conn:
             conn.close()
 
-# Old Database Tables (D:\Nova1\data\nova.db)
-# Uncomment the table you want to inspect:
-# inspect_table("D:\\Nova1\\data\\nova.db", "Locations")
-# inspect_table("D:\\Nova1\\data\\nova.db", "SourceEvents")
-# inspect_table("D:\\Nova1\\data\\nova.db", "Entities")
-# inspect_table("D:\\Nova1\\data\\nova.db", "CharacterLocationRelations")
-# inspect_table("D:\\Nova1\\data\\nova.db", "MediaSources")
-# inspect_table("D:\\Nova1\\data\\nova.db", "PrimaryCharacters")
-# inspect_table("D:\\Nova1\\data\\nova.db", "SecondaryCharacters")
-# inspect_table("D:\\Nova1\\data\\nova.db", "TertiaryCharacters")
-# inspect_table("D:\\Nova1\\data\\nova.db", "FamilyRelationships")
-# inspect_table("D:\\Nova1\\data\\nova.db", "RelationshipTypes")
-# inspect_table("D:\\Nova1\\data\\nova.db", "EntityLocationLinks")
-# inspect_table("D:\\Nova1\\data\\nova.db", "LocationEvents")
-# inspect_table("D:\\Nova1\\data\\nova.db", "EntityEvents")
-# inspect_table("D:\\Nova1\\data\\nova.db", "Sources")
-# inspect_table("D:\\Nova1\\data\\nova.db", "CharacterEntitiesRelations")
-# inspect_table("D:\\Nova1\\data\\nova.db", "Events")
-# inspect_table("D:\\Nova1\\data\\nova.db", "Characters")
-# inspect_table("D:\\Nova1\\data\\nova.db", "CharacterEvents")
-# inspect_table("D:\\Nova1\\data\\nova.db", "TabEvents")
 
-# New Database Tables (C:\AI\Nova\src\nova_database.db)
+# Database path
+db_path = "C:\\AI\\Nova\\src\\nova_database.db"
+
 # Uncomment the table you want to inspect:
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "Events")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "Locations")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "Entities")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "EventCharacters")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "EventLocations")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "EventEntities")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "Characters")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "PrimaryCharacters")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "SecondaryCharacters")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "TertiaryCharacters")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "QuaternaryCharacters")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "TabEvents")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "Sources")
-# inspect_table("C:\\AI\\Nova\\src\\nova_database.db", "EventMetadata")
+# inspect_table(db_path, "Events")
+# inspect_table(db_path, "Locations")
+inspect_table(db_path, "Entities")
+# inspect_table(db_path, "EventCharacters")
+# inspect_table(db_path, "EventLocations")
+# inspect_table(db_path, "EventEntities")
+# inspect_table(db_path, "Characters")
+# inspect_table(db_path, "PrimaryCharacters")
+# inspect_table(db_path, "SecondaryCharacters")
+# inspect_table(db_path, "TertiaryCharacters")
+# inspect_table(db_path, "QuaternaryCharacters")
+# inspect_table(db_path, "TabEvents")
+# inspect_table(db_path, "Sources")
+# inspect_table(db_path, "EventMetadata")

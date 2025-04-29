@@ -30,17 +30,17 @@ class LocationsTab(BaseTab):
             parent (QWidget, optional): Parent widget
         """
         # Define tab-specific properties
-        self.table_headers = ["ID", "Name", "Aliases", "Description", "Coordinates", "Source"]
+        self.table_headers = ["ID", "Name", "Aliases", "Description", "Address", "Source"]
         
         self.detail_fields = [
             {'name': 'name', 'label': 'Name:', 'type': 'text'},
             {'name': 'aliases', 'label': 'Aliases:', 'type': 'text'},
-            {'name': 'coordinates', 'label': 'Coordinates:', 'type': 'text'},
+            {'name': 'address', 'label': 'Address:', 'type': 'text'},
             {'name': 'description', 'label': 'Description:', 'type': 'textarea'},
             {'name': 'source', 'label': 'Source:', 'type': 'text'}
         ]
         
-        self.search_filters = ["All", "Name", "Aliases", "Coordinates", "Description", "Source"]
+        self.search_filters = ["All", "Name", "Aliases", "Address", "Description", "Source"]
         
         # Create location service
         self.location_service = LocationService(db_path)
@@ -255,8 +255,8 @@ class LocationsTab(BaseTab):
         menu.addSeparator()
         menu.addAction(show_refs_action)
         
-        # Only add map action if coordinates are available
-        if location_data.get('coordinates'):
+        # Only add map action if address are available
+        if location_data.get('address'):
             menu.addAction(map_action)
         
         # Show the menu
@@ -303,18 +303,18 @@ class LocationsTab(BaseTab):
         try:
             location_data = self.location_service.get_location_by_id(location_id)
             
-            if not location_data or not location_data.get('coordinates'):
-                self.show_message("Map Error", "No coordinates available for this location.", QMessageBox.Warning)
+            if not location_data or not location_data.get('address'):
+                self.show_message("Map Error", "No address available for this location.", QMessageBox.Warning)
                 return
             
             # This is a placeholder for map integration
-            # In a real implementation, this would open a map view with the coordinates
-            coordinates = location_data['coordinates']
+            # In a real implementation, this would open a map view with the address
+            address = location_data['address']
             
             self.show_message("Map View", 
-                             f"Map view for '{location_name}' at coordinates: {coordinates}\n\n"
+                             f"Map view for '{location_name}' at address: {address}\n\n"
                              f"Map integration not implemented yet.", 
                              QMessageBox.Information)
             
         except DatabaseError as e:
-            self.show_message("Database Error", f"Error retrieving location coordinates: {str(e)}", QMessageBox.Critical)
+            self.show_message("Database Error", f"Error retrieving location address: {str(e)}", QMessageBox.Critical)

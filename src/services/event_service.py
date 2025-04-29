@@ -25,10 +25,10 @@ class EventService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.id, e.event_date, e.title, e.description, e.source_id, s.title as source_title 
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
             FROM events e
-            LEFT JOIN sources s ON e.source_id = s.id
-            ORDER BY e.event_date DESC
+            LEFT JOIN sources s ON e.SourceID = s.SourceID
+            ORDER BY e.EventDate DESC
             LIMIT ? OFFSET ?
         """
         return self.execute_query(query, (limit, offset))
@@ -68,31 +68,31 @@ class EventService(BaseService):
         """
         if start_date and end_date:
             query = """
-                SELECT e.id, e.event_date, e.title, e.description, e.source_id, s.title as source_title 
+                SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
                 FROM events e
-                LEFT JOIN sources s ON e.source_id = s.id
-                WHERE e.event_date BETWEEN ? AND ?
-                ORDER BY e.event_date DESC
+                LEFT JOIN sources s ON e.SourceID = s.SourceID
+                WHERE e.EventDate BETWEEN ? AND ?
+                ORDER BY e.EventDate DESC
                 LIMIT ? OFFSET ?
             """
             params = (start_date, end_date, limit, offset)
         elif start_date:
             query = """
-                SELECT e.id, e.event_date, e.title, e.description, e.source_id, s.title as source_title 
+                SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
                 FROM events e
-                LEFT JOIN sources s ON e.source_id = s.id
-                WHERE e.event_date >= ?
-                ORDER BY e.event_date DESC
+                LEFT JOIN sources s ON e.SourceID = s.SourceID
+                WHERE e.EventDate >= ?
+                ORDER BY e.EventDate DESC
                 LIMIT ? OFFSET ?
             """
             params = (start_date, limit, offset)
         elif end_date:
             query = """
-                SELECT e.id, e.event_date, e.title, e.description, e.source_id, s.title as source_title 
+                SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
                 FROM events e
-                LEFT JOIN sources s ON e.source_id = s.id
-                WHERE e.event_date <= ?
-                ORDER BY e.event_date DESC
+                LEFT JOIN sources s ON e.SourceID = s.SourceID
+                WHERE e.EventDate <= ?
+                ORDER BY e.EventDate DESC
                 LIMIT ? OFFSET ?
             """
             params = (end_date, limit, offset)
@@ -119,11 +119,11 @@ class EventService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.id, e.event_date, e.title, e.description, e.source_id, s.title as source_title 
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
             FROM events e
-            LEFT JOIN sources s ON e.source_id = s.id
-            WHERE e.title LIKE ? OR e.description LIKE ?
-            ORDER BY e.event_date DESC
+            LEFT JOIN sources s ON e.SourceID = s.SourceID
+            WHERE e.EventTitle LIKE ? OR e.EventText LIKE ?
+            ORDER BY e.EventDate DESC
             LIMIT ? OFFSET ?
         """
         search_pattern = f"%{search_text}%"
@@ -145,12 +145,12 @@ class EventService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.id, e.event_date, e.title, e.description, 
-                   e.source_id, s.title as source_title,
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, 
+                   e.SourceID, s.SourceName as source_title,
                    e.page_number, e.confidence, e.verified
             FROM events e
-            LEFT JOIN sources s ON e.source_id = s.id
-            WHERE e.id = ?
+            LEFT JOIN sources s ON e.SourceID = s.SourceID
+            WHERE e.EventID = ?
         """
         results = self.execute_query(query, (event_id,))
         
@@ -176,38 +176,28 @@ class EventService(BaseService):
         
         return event_data
     
-    def get_event_characters(self, event_id: int) -> List[Dict[str, Any]]:
+
+    def get_events_character(self, character_id: int) -> List[Tuple]:
         """
-        Get characters associated with an event.
+        Get all events associated with a character.
         
         Args:
-            event_id: ID of the event
+            character_id: ID of the character
             
         Returns:
-            List of character data
+            List of event records
             
         Raises:
             DatabaseError: If query fails
         """
         query = """
-            SELECT c.id, c.name, cm.context, cm.id as mention_id
-            FROM character_mentions cm
-            JOIN characters c ON cm.character_id = c.id
-            WHERE cm.event_id = ?
-            ORDER BY c.name
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText
+            FROM Events e
+            JOIN EventCharacters ec ON e.EventID = ec.EventID
+            WHERE ec.CharacterID = ?
+            ORDER BY e.EventDate
         """
-        results = self.execute_query(query, (event_id,))
-        
-        characters = []
-        for row in results:
-            characters.append({
-                'id': row[0],
-                'name': row[1],
-                'context': row[2],
-                'mention_id': row[3]
-            })
-        
-        return characters
+        return self.execute_query(query, (character_id,))
     
     def get_event_locations(self, event_id: int) -> List[Dict[str, Any]]:
         """
@@ -256,9 +246,9 @@ class EventService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.id, e.name, e.entity_type, em.context, em.id as mention_id
+            SELECT e.EventID, e.name, e.entity_type, em.context, em.id as mention_id
             FROM entity_mentions em
-            JOIN entities e ON em.entity_id = e.id
+            JOIN entities e ON em.entity_id = e.EventID
             WHERE em.event_id = ?
             ORDER BY e.name
         """
@@ -290,11 +280,11 @@ class EventService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.id, e.event_date, e.title, e.description, e.source_id, s.title as source_title 
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
             FROM events e
-            LEFT JOIN sources s ON e.source_id = s.id
-            WHERE e.event_date = ?
-            ORDER BY e.title
+            LEFT JOIN sources s ON e.SourceID = s.SourceID
+            WHERE e.EventDate = ?
+            ORDER BY e.EventTitle
         """
         return self.execute_query(query, (event_date,))
     
@@ -312,12 +302,12 @@ class EventService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.id, e.event_date, e.title, e.description, e.source_id, s.title as source_title 
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
             FROM events e
-            JOIN character_mentions cm ON e.id = cm.event_id
-            LEFT JOIN sources s ON e.source_id = s.id
+            JOIN character_mentions cm ON e.EventID = cm.event_id
+            LEFT JOIN sources s ON e.SourceID = s.SourceID
             WHERE cm.character_id = ?
-            ORDER BY e.event_date DESC
+            ORDER BY e.EventDate DESC
         """
         return self.execute_query(query, (character_id,))
     
@@ -335,12 +325,12 @@ class EventService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.id, e.event_date, e.title, e.description, e.source_id, s.title as source_title 
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
             FROM events e
-            JOIN location_mentions lm ON e.id = lm.event_id
-            LEFT JOIN sources s ON e.source_id = s.id
+            JOIN location_mentions lm ON e.EventID = lm.event_id
+            LEFT JOIN sources s ON e.SourceID = s.SourceID
             WHERE lm.location_id = ?
-            ORDER BY e.event_date DESC
+            ORDER BY e.EventDate DESC
         """
         return self.execute_query(query, (location_id,))
     
@@ -358,11 +348,11 @@ class EventService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.id, e.event_date, e.title, e.description, e.source_id, s.title as source_title 
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
             FROM events e
-            JOIN entity_mentions em ON e.id = em.event_id
-            LEFT JOIN sources s ON e.source_id = s.id
+            JOIN entity_mentions em ON e.EventID = em.event_id
+            LEFT JOIN sources s ON e.SourceID = s.SourceID
             WHERE em.entity_id = ?
-            ORDER BY e.event_date DESC
+            ORDER BY e.EventDate DESC
         """
         return self.execute_query(query, (entity_id,))

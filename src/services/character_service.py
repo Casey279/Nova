@@ -20,7 +20,7 @@ class CharacterService(BaseService):
         """
         query = """
             SELECT CharacterID, DisplayName, FirstName, MiddleName, LastName, 
-                   Title, Suffix, Aliases, Description, ImageFile, Reviewed
+                   Prefix, Suffix, Aliases, BackgroundSummary, ImagePath, Reviewed
             FROM Characters
             ORDER BY DisplayName
         """
@@ -46,14 +46,13 @@ class CharacterService(BaseService):
             column_mapping = {
                 "name": "DisplayName",
                 "aliases": "Aliases",
-                "description": "Description"
-                # Add more mappings as needed
+                "background": "BackgroundSummary"
             }
             db_column = column_mapping.get(column, column)
             
             query = f"""
                 SELECT CharacterID, DisplayName, FirstName, MiddleName, LastName, 
-                       Title, Suffix, Aliases, Description, ImageFile, Reviewed
+                       Prefix, Suffix, Aliases, BackgroundSummary, ImagePath, Reviewed
                 FROM Characters
                 WHERE {db_column} LIKE ?
                 ORDER BY DisplayName
@@ -62,10 +61,10 @@ class CharacterService(BaseService):
         else:
             query = """
                 SELECT CharacterID, DisplayName, FirstName, MiddleName, LastName, 
-                       Title, Suffix, Aliases, Description, ImageFile, Reviewed
+                       Prefix, Suffix, Aliases, BackgroundSummary, ImagePath, Reviewed
                 FROM Characters
                 WHERE DisplayName LIKE ? OR FirstName LIKE ? OR LastName LIKE ? OR 
-                      MiddleName LIKE ? OR Aliases LIKE ? OR Description LIKE ?
+                      MiddleName LIKE ? OR Aliases LIKE ? OR BackgroundSummary LIKE ?
                 ORDER BY DisplayName
             """
             params = (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", 
@@ -88,7 +87,10 @@ class CharacterService(BaseService):
         """
         query = """
             SELECT CharacterID, DisplayName, FirstName, MiddleName, LastName,
-                   Title, Suffix, Aliases, Description, ImageFile, Reviewed
+                   Prefix, Suffix, Aliases, BirthDate, DeathDate, Height, Weight,
+                   Eyes, Hair, Occupation, Family, Affiliations, PersonalityTraits,
+                   BackgroundSummary, Gender, MyersBriggs, Enneagram, ClifftonStrengths,
+                   ImagePath, FindAGrave, Reviewed
             FROM Characters
             WHERE CharacterID = ?
         """
@@ -101,12 +103,27 @@ class CharacterService(BaseService):
                 'first_name': results[0][2],
                 'middle_name': results[0][3],
                 'last_name': results[0][4],
-                'title': results[0][5],
+                'prefix': results[0][5],
                 'suffix': results[0][6],
                 'aliases': results[0][7],
-                'description': results[0][8],
-                'image_file': results[0][9],
-                'reviewed': results[0][10]
+                'birth_date': results[0][8],
+                'death_date': results[0][9],
+                'height': results[0][10],
+                'weight': results[0][11],
+                'eyes': results[0][12],
+                'hair': results[0][13],
+                'occupation': results[0][14],
+                'family': results[0][15],
+                'affiliations': results[0][16],
+                'personality_traits': results[0][17],
+                'background_summary': results[0][18],
+                'gender': results[0][19],
+                'myers_briggs': results[0][20],
+                'enneagram': results[0][21],
+                'cliffton_strengths': results[0][22],
+                'image_path': results[0][23],
+                'find_a_grave': results[0][24],
+                'reviewed': results[0][25]
             }
         
         return None
@@ -126,19 +143,38 @@ class CharacterService(BaseService):
         """
         query = """
             INSERT INTO Characters (DisplayName, FirstName, MiddleName, LastName,
-                                  Title, Suffix, Aliases, Description, ImageFile, Reviewed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  Prefix, Suffix, Aliases, BirthDate, DeathDate, 
+                                  Height, Weight, Eyes, Hair, Occupation, Family,
+                                  Affiliations, PersonalityTraits, BackgroundSummary,
+                                  Gender, MyersBriggs, Enneagram, ClifftonStrengths,
+                                  ImagePath, FindAGrave, Reviewed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
             character_data.get('display_name', ''),
             character_data.get('first_name', ''),
             character_data.get('middle_name', ''),
             character_data.get('last_name', ''),
-            character_data.get('title', ''),
+            character_data.get('prefix', ''),
             character_data.get('suffix', ''),
             character_data.get('aliases', ''),
-            character_data.get('description', ''),
-            character_data.get('image_file', ''),
+            character_data.get('birth_date', ''),
+            character_data.get('death_date', ''),
+            character_data.get('height', ''),
+            character_data.get('weight', ''),
+            character_data.get('eyes', ''),
+            character_data.get('hair', ''),
+            character_data.get('occupation', ''),
+            character_data.get('family', ''),
+            character_data.get('affiliations', ''),
+            character_data.get('personality_traits', ''),
+            character_data.get('background_summary', ''),
+            character_data.get('gender', ''),
+            character_data.get('myers_briggs', ''),
+            character_data.get('enneagram', ''),
+            character_data.get('cliffton_strengths', ''),
+            character_data.get('image_path', ''),
+            character_data.get('find_a_grave', ''),
             character_data.get('reviewed', 0)
         )
         
@@ -162,7 +198,11 @@ class CharacterService(BaseService):
         query = """
             UPDATE Characters
             SET DisplayName = ?, FirstName = ?, MiddleName = ?, LastName = ?,
-                Title = ?, Suffix = ?, Aliases = ?, Description = ?, ImageFile = ?, Reviewed = ?
+                Prefix = ?, Suffix = ?, Aliases = ?, BirthDate = ?, DeathDate = ?,
+                Height = ?, Weight = ?, Eyes = ?, Hair = ?, Occupation = ?, Family = ?,
+                Affiliations = ?, PersonalityTraits = ?, BackgroundSummary = ?,
+                Gender = ?, MyersBriggs = ?, Enneagram = ?, ClifftonStrengths = ?,
+                ImagePath = ?, FindAGrave = ?, Reviewed = ?
             WHERE CharacterID = ?
         """
         params = (
@@ -170,11 +210,26 @@ class CharacterService(BaseService):
             character_data.get('first_name', ''),
             character_data.get('middle_name', ''),
             character_data.get('last_name', ''),
-            character_data.get('title', ''),
+            character_data.get('prefix', ''),
             character_data.get('suffix', ''),
             character_data.get('aliases', ''),
-            character_data.get('description', ''),
-            character_data.get('image_file', ''),
+            character_data.get('birth_date', ''),
+            character_data.get('death_date', ''),
+            character_data.get('height', ''),
+            character_data.get('weight', ''),
+            character_data.get('eyes', ''),
+            character_data.get('hair', ''),
+            character_data.get('occupation', ''),
+            character_data.get('family', ''),
+            character_data.get('affiliations', ''),
+            character_data.get('personality_traits', ''),
+            character_data.get('background_summary', ''),
+            character_data.get('gender', ''),
+            character_data.get('myers_briggs', ''),
+            character_data.get('enneagram', ''),
+            character_data.get('cliffton_strengths', ''),
+            character_data.get('image_path', ''),
+            character_data.get('find_a_grave', ''),
             character_data.get('reviewed', 0),
             character_id
         )
@@ -213,11 +268,11 @@ class CharacterService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT s.Title, COUNT(cm.MentionID)
+            SELECT s.SourceName, COUNT(cm.MentionID)
             FROM CharacterMentions cm
             JOIN Sources s ON cm.SourceID = s.SourceID
             WHERE cm.CharacterID = ?
-            GROUP BY s.Title
+            GROUP BY s.SourceName
             ORDER BY COUNT(cm.MentionID) DESC
         """
         return self.execute_query(query, (character_id,))
@@ -284,10 +339,10 @@ class CharacterService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.EventID, e.EventDate, e.Title, e.Description, e.SourceID
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID
             FROM Events e
-            JOIN CharacterMentions cm ON e.EventID = cm.EventID
-            WHERE cm.CharacterID = ?
+            JOIN EventCharacters ec ON e.EventID = ec.EventID
+            WHERE ec.CharacterID = ?
             ORDER BY e.EventDate DESC
         """
         return self.execute_query(query, (character_id,))
@@ -307,7 +362,7 @@ class CharacterService(BaseService):
         """
         query = """
             SELECT CharacterID, DisplayName, FirstName, MiddleName, LastName,
-                   Title, Suffix, Aliases, Description, ImageFile, Reviewed
+                   Prefix, Suffix, Aliases, BackgroundSummary, ImagePath, Reviewed
             FROM Characters
             WHERE DisplayName LIKE ? OR Aliases LIKE ?
             ORDER BY DisplayName

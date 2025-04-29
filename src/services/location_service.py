@@ -19,8 +19,9 @@ class LocationService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT LocationID, DisplayName, LocationName, Aliases, Description, 
-                   Coordinates, Address, City, State, Country, ImageFile, ReviewStatus
+            SELECT LocationID, DisplayName, LocationName, Aliases, Address, 
+                   LocationType, YearBuilt, Description, Owners, Managers, 
+                   Employees, Summary, ImagePath, ReviewStatus
             FROM Locations
             ORDER BY DisplayName
         """
@@ -48,17 +49,16 @@ class LocationService(BaseService):
                 "location_name": "LocationName",
                 "aliases": "Aliases",
                 "description": "Description",
-                "coordinates": "Coordinates",
                 "address": "Address",
-                "city": "City",
-                "state": "State",
-                "country": "Country"
+                "location_type": "LocationType",
+                "year_built": "YearBuilt"
             }
             db_column = column_mapping.get(column, column)
             
             query = f"""
-                SELECT LocationID, DisplayName, LocationName, Aliases, Description, 
-                       Coordinates, Address, City, State, Country, ImageFile, ReviewStatus
+                SELECT LocationID, DisplayName, LocationName, Aliases, Address, 
+                       LocationType, YearBuilt, Description, Owners, Managers, 
+                       Employees, Summary, ImagePath, ReviewStatus
                 FROM Locations
                 WHERE {db_column} LIKE ?
                 ORDER BY DisplayName
@@ -66,17 +66,18 @@ class LocationService(BaseService):
             params = (f"%{search_text}%",)
         else:
             query = """
-                SELECT LocationID, DisplayName, LocationName, Aliases, Description, 
-                       Coordinates, Address, City, State, Country, ImageFile, ReviewStatus
+                SELECT LocationID, DisplayName, LocationName, Aliases, Address, 
+                       LocationType, YearBuilt, Description, Owners, Managers, 
+                       Employees, Summary, ImagePath, ReviewStatus
                 FROM Locations
                 WHERE DisplayName LIKE ? OR LocationName LIKE ? OR Aliases LIKE ? OR 
-                      Description LIKE ? OR Address LIKE ? OR City LIKE ? OR
-                      State LIKE ? OR Country LIKE ?
+                      Description LIKE ? OR Address LIKE ? OR LocationType LIKE ? OR
+                      YearBuilt LIKE ?
                 ORDER BY DisplayName
             """
             params = (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", 
                       f"%{search_text}%", f"%{search_text}%", f"%{search_text}%",
-                      f"%{search_text}%", f"%{search_text}%")
+                      f"%{search_text}%")
         
         return self.execute_query(query, params)
     
@@ -94,8 +95,9 @@ class LocationService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT LocationID, DisplayName, LocationName, Aliases, Description, 
-                   Coordinates, Address, City, State, Country, ImageFile, ReviewStatus
+            SELECT LocationID, DisplayName, LocationName, Aliases, Address, 
+                   LocationType, YearBuilt, Description, Owners, Managers, 
+                   Employees, Summary, ImagePath, ReviewStatus
             FROM Locations
             WHERE LocationID = ?
         """
@@ -107,14 +109,16 @@ class LocationService(BaseService):
                 'display_name': results[0][1],
                 'location_name': results[0][2],
                 'aliases': results[0][3],
-                'description': results[0][4],
-                'coordinates': results[0][5],
-                'address': results[0][6],
-                'city': results[0][7],
-                'state': results[0][8],
-                'country': results[0][9],
-                'image_file': results[0][10],
-                'review_status': results[0][11]
+                'address': results[0][4],
+                'location_type': results[0][5],
+                'year_built': results[0][6],
+                'description': results[0][7],
+                'owners': results[0][8],
+                'managers': results[0][9],
+                'employees': results[0][10],
+                'summary': results[0][11],
+                'image_path': results[0][12],
+                'review_status': results[0][13]
             }
         
         return None
@@ -133,22 +137,24 @@ class LocationService(BaseService):
             DatabaseError: If operation fails
         """
         query = """
-            INSERT INTO Locations (DisplayName, LocationName, Aliases, Description, 
-                                 Coordinates, Address, City, State, Country, 
-                                 ImageFile, ReviewStatus)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO Locations (DisplayName, LocationName, Aliases, Address, 
+                                 LocationType, YearBuilt, Description, Owners, 
+                                 Managers, Employees, Summary, ImagePath, ReviewStatus)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
             location_data.get('display_name', ''),
             location_data.get('location_name', ''),
             location_data.get('aliases', ''),
-            location_data.get('description', ''),
-            location_data.get('coordinates', ''),
             location_data.get('address', ''),
-            location_data.get('city', ''),
-            location_data.get('state', ''),
-            location_data.get('country', ''),
-            location_data.get('image_file', ''),
+            location_data.get('location_type', ''),
+            location_data.get('year_built', ''),
+            location_data.get('description', ''),
+            location_data.get('owners', ''),
+            location_data.get('managers', ''),
+            location_data.get('employees', ''),
+            location_data.get('summary', ''),
+            location_data.get('image_path', ''),
             location_data.get('review_status', 'needs_review')
         )
         
@@ -171,22 +177,24 @@ class LocationService(BaseService):
         """
         query = """
             UPDATE Locations
-            SET DisplayName = ?, LocationName = ?, Aliases = ?, Description = ?,
-                Coordinates = ?, Address = ?, City = ?, State = ?, Country = ?,
-                ImageFile = ?, ReviewStatus = ?
+            SET DisplayName = ?, LocationName = ?, Aliases = ?, Address = ?,
+                LocationType = ?, YearBuilt = ?, Description = ?, Owners = ?,
+                Managers = ?, Employees = ?, Summary = ?, ImagePath = ?, ReviewStatus = ?
             WHERE LocationID = ?
         """
         params = (
             location_data.get('display_name', ''),
             location_data.get('location_name', ''),
             location_data.get('aliases', ''),
-            location_data.get('description', ''),
-            location_data.get('coordinates', ''),
             location_data.get('address', ''),
-            location_data.get('city', ''),
-            location_data.get('state', ''),
-            location_data.get('country', ''),
-            location_data.get('image_file', ''),
+            location_data.get('location_type', ''),
+            location_data.get('year_built', ''),
+            location_data.get('description', ''),
+            location_data.get('owners', ''),
+            location_data.get('managers', ''),
+            location_data.get('employees', ''),
+            location_data.get('summary', ''),
+            location_data.get('image_path', ''),
             location_data.get('review_status', 'needs_review'),
             location_id
         )
@@ -225,11 +233,11 @@ class LocationService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT s.Title, COUNT(lm.MentionID)
+            SELECT s.SourceName, COUNT(lm.MentionID)
             FROM LocationMentions lm
             JOIN Sources s ON lm.SourceID = s.SourceID
             WHERE lm.LocationID = ?
-            GROUP BY s.Title
+            GROUP BY s.SourceName
             ORDER BY COUNT(lm.MentionID) DESC
         """
         return self.execute_query(query, (location_id,))
@@ -296,10 +304,10 @@ class LocationService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.EventID, e.EventDate, e.Title, e.Description, e.SourceID
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID
             FROM Events e
-            JOIN LocationMentions lm ON e.EventID = lm.EventID
-            WHERE lm.LocationID = ?
+            JOIN EventLocations el ON e.EventID = el.EventID
+            WHERE el.LocationID = ?
             ORDER BY e.EventDate DESC
         """
         return self.execute_query(query, (location_id,))
@@ -318,8 +326,9 @@ class LocationService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT LocationID, DisplayName, LocationName, Aliases, Description, 
-                   Coordinates, Address, City, State, Country, ImageFile, ReviewStatus
+            SELECT LocationID, DisplayName, LocationName, Aliases, Address, 
+                   LocationType, YearBuilt, Description, Owners, Managers, 
+                   Employees, Summary, ImagePath, ReviewStatus
             FROM Locations
             WHERE DisplayName LIKE ? OR LocationName LIKE ? OR Aliases LIKE ?
             ORDER BY DisplayName

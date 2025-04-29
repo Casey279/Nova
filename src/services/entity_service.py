@@ -20,8 +20,8 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT EntityID, DisplayName, Name, Aliases, Description, 
-                   EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+            SELECT EntityID, DisplayName, Name, Aliases, Type, Description, 
+                   EstablishedDate, Affiliation, Summary, ImagePath, KnownMembers
             FROM Entities
             ORDER BY DisplayName
         """
@@ -49,16 +49,17 @@ class EntityService(BaseService):
                 "display_name": "DisplayName",
                 "aliases": "Aliases",
                 "description": "Description",
-                "entity_type": "EntityType",
-                "start_date": "StartDate",
-                "end_date": "EndDate",
-                "associated_persons": "AssociatedPersons"
+                "type": "Type",
+                "established_date": "EstablishedDate",
+                "affiliation": "Affiliation",
+                "summary": "Summary",
+                "known_members": "KnownMembers"
             }
             db_column = column_mapping.get(column, column)
             
             query = f"""
-                SELECT EntityID, DisplayName, Name, Aliases, Description, 
-                       EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+                SELECT EntityID, DisplayName, Name, Aliases, Type, Description, 
+                       EstablishedDate, Affiliation, Summary, ImagePath, KnownMembers
                 FROM Entities
                 WHERE {db_column} LIKE ?
                 ORDER BY DisplayName
@@ -66,17 +67,18 @@ class EntityService(BaseService):
             params = (f"%{search_text}%",)
         else:
             query = """
-                SELECT EntityID, DisplayName, Name, Aliases, Description, 
-                       EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+                SELECT EntityID, DisplayName, Name, Aliases, Type, Description, 
+                       EstablishedDate, Affiliation, Summary, ImagePath, KnownMembers
                 FROM Entities
                 WHERE DisplayName LIKE ? OR Name LIKE ? OR Aliases LIKE ? OR 
-                      Description LIKE ? OR EntityType LIKE ? OR 
-                      StartDate LIKE ? OR EndDate LIKE ? OR AssociatedPersons LIKE ?
+                      Description LIKE ? OR Type LIKE ? OR 
+                      EstablishedDate LIKE ? OR Affiliation LIKE ? OR Summary LIKE ? OR
+                      KnownMembers LIKE ?
                 ORDER BY DisplayName
             """
             params = (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", 
                      f"%{search_text}%", f"%{search_text}%", f"%{search_text}%",
-                     f"%{search_text}%", f"%{search_text}%")
+                     f"%{search_text}%", f"%{search_text}%", f"%{search_text}%")
         
         return self.execute_query(query, params)
     
@@ -94,8 +96,8 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT EntityID, DisplayName, Name, Aliases, Description, 
-                   EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+            SELECT EntityID, DisplayName, Name, Aliases, Type, Description, 
+                   EstablishedDate, Affiliation, Summary, ImagePath, KnownMembers
             FROM Entities
             WHERE EntityID = ?
         """
@@ -107,13 +109,13 @@ class EntityService(BaseService):
                 'display_name': results[0][1],
                 'name': results[0][2],
                 'aliases': results[0][3],
-                'description': results[0][4],
-                'entity_type': results[0][5],
-                'start_date': results[0][6],
-                'end_date': results[0][7],
-                'associated_persons': results[0][8],
-                'image_file': results[0][9],
-                'review_status': results[0][10]
+                'type': results[0][4],
+                'description': results[0][5],
+                'established_date': results[0][6],
+                'affiliation': results[0][7],
+                'summary': results[0][8],
+                'image_path': results[0][9],
+                'known_members': results[0][10]
             }
         
         return None
@@ -132,21 +134,21 @@ class EntityService(BaseService):
             DatabaseError: If operation fails
         """
         query = """
-            INSERT INTO Entities (DisplayName, Name, Aliases, Description, EntityType, 
-                                StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus)
+            INSERT INTO Entities (DisplayName, Name, Aliases, Type, Description, 
+                                EstablishedDate, Affiliation, Summary, ImagePath, KnownMembers)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
             entity_data.get('display_name', ''),
             entity_data.get('name', ''),
             entity_data.get('aliases', ''),
+            entity_data.get('type', ''),
             entity_data.get('description', ''),
-            entity_data.get('entity_type', ''),
-            entity_data.get('start_date', ''),
-            entity_data.get('end_date', ''),
-            entity_data.get('associated_persons', ''),
-            entity_data.get('image_file', ''),
-            entity_data.get('review_status', 'needs_review')
+            entity_data.get('established_date', ''),
+            entity_data.get('affiliation', ''),
+            entity_data.get('summary', ''),
+            entity_data.get('image_path', ''),
+            entity_data.get('known_members', '')
         )
         
         self.execute_update(query, params)
@@ -168,21 +170,21 @@ class EntityService(BaseService):
         """
         query = """
             UPDATE Entities
-            SET DisplayName = ?, Name = ?, Aliases = ?, Description = ?, EntityType = ?, 
-                StartDate = ?, EndDate = ?, AssociatedPersons = ?, ImageFile = ?, ReviewStatus = ?
+            SET DisplayName = ?, Name = ?, Aliases = ?, Type = ?, Description = ?, 
+                EstablishedDate = ?, Affiliation = ?, Summary = ?, ImagePath = ?, KnownMembers = ?
             WHERE EntityID = ?
         """
         params = (
             entity_data.get('display_name', ''),
             entity_data.get('name', ''),
             entity_data.get('aliases', ''),
+            entity_data.get('type', ''),
             entity_data.get('description', ''),
-            entity_data.get('entity_type', ''),
-            entity_data.get('start_date', ''),
-            entity_data.get('end_date', ''),
-            entity_data.get('associated_persons', ''),
-            entity_data.get('image_file', ''),
-            entity_data.get('review_status', 'needs_review'),
+            entity_data.get('established_date', ''),
+            entity_data.get('affiliation', ''),
+            entity_data.get('summary', ''),
+            entity_data.get('image_path', ''),
+            entity_data.get('known_members', ''),
             entity_id
         )
         
@@ -220,11 +222,11 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT s.Title, COUNT(em.MentionID)
+            SELECT s.SourceName, COUNT(em.MentionID)
             FROM EntityMentions em
             JOIN Sources s ON em.SourceID = s.SourceID
             WHERE em.EntityID = ?
-            GROUP BY s.Title
+            GROUP BY s.SourceName
             ORDER BY COUNT(em.MentionID) DESC
         """
         return self.execute_query(query, (entity_id,))
@@ -291,10 +293,10 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT e.EventID, e.EventDate, e.Title, e.Description, e.SourceID
+            SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID
             FROM Events e
-            JOIN EntityMentions em ON e.EventID = em.EventID
-            WHERE em.EntityID = ?
+            JOIN EventEntities ee ON e.EventID = ee.EventID
+            WHERE ee.EntityID = ?
             ORDER BY e.EventDate DESC
         """
         return self.execute_query(query, (entity_id,))
@@ -313,10 +315,10 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT EntityID, DisplayName, Name, Aliases, Description, 
-                   EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+            SELECT EntityID, DisplayName, Name, Aliases, Type, Description, 
+                   EstablishedDate, Affiliation, Summary, ImagePath, KnownMembers
             FROM Entities
-            WHERE EntityType = ?
+            WHERE Type = ?
             ORDER BY DisplayName
         """
         return self.execute_query(query, (entity_type,))
@@ -332,10 +334,10 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT DISTINCT EntityType 
+            SELECT DISTINCT Type 
             FROM Entities
-            WHERE EntityType IS NOT NULL AND EntityType != ''
-            ORDER BY EntityType
+            WHERE Type IS NOT NULL AND Type != ''
+            ORDER BY Type
         """
         results = self.execute_query(query)
         return [result[0] for result in results if result[0]]
@@ -354,8 +356,8 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT EntityID, DisplayName, Name, Aliases, Description, 
-                   EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+            SELECT EntityID, DisplayName, Name, Aliases, Type, Description, 
+                   EstablishedDate, Affiliation, Summary, ImagePath, KnownMembers
             FROM Entities
             WHERE DisplayName LIKE ? OR Name LIKE ? OR Aliases LIKE ?
             ORDER BY DisplayName
