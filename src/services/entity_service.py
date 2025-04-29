@@ -20,9 +20,10 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT id, name, aliases, description, entity_type, start_date, end_date, source 
-            FROM entities
-            ORDER BY name
+            SELECT EntityID, DisplayName, Name, Aliases, Description, 
+                   EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+            FROM Entities
+            ORDER BY DisplayName
         """
         return self.execute_query(query)
     
@@ -41,25 +42,41 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         if filter_column and filter_column.lower() != "all":
+            column = filter_column.lower()
+            # Map UI column names to database column names
+            column_mapping = {
+                "name": "DisplayName",
+                "display_name": "DisplayName",
+                "aliases": "Aliases",
+                "description": "Description",
+                "entity_type": "EntityType",
+                "start_date": "StartDate",
+                "end_date": "EndDate",
+                "associated_persons": "AssociatedPersons"
+            }
+            db_column = column_mapping.get(column, column)
+            
             query = f"""
-                SELECT id, name, aliases, description, entity_type, start_date, end_date, source 
-                FROM entities
-                WHERE {filter_column.lower()} LIKE ?
-                ORDER BY name
+                SELECT EntityID, DisplayName, Name, Aliases, Description, 
+                       EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+                FROM Entities
+                WHERE {db_column} LIKE ?
+                ORDER BY DisplayName
             """
             params = (f"%{search_text}%",)
         else:
             query = """
-                SELECT id, name, aliases, description, entity_type, start_date, end_date, source 
-                FROM entities
-                WHERE name LIKE ? OR aliases LIKE ? OR description LIKE ? OR 
-                      entity_type LIKE ? OR start_date LIKE ? OR end_date LIKE ? OR source LIKE ?
-                ORDER BY name
+                SELECT EntityID, DisplayName, Name, Aliases, Description, 
+                       EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+                FROM Entities
+                WHERE DisplayName LIKE ? OR Name LIKE ? OR Aliases LIKE ? OR 
+                      Description LIKE ? OR EntityType LIKE ? OR 
+                      StartDate LIKE ? OR EndDate LIKE ? OR AssociatedPersons LIKE ?
+                ORDER BY DisplayName
             """
-            params = (
-                f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", 
-                f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", f"%{search_text}%"
-            )
+            params = (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", 
+                     f"%{search_text}%", f"%{search_text}%", f"%{search_text}%",
+                     f"%{search_text}%", f"%{search_text}%")
         
         return self.execute_query(query, params)
     
@@ -77,22 +94,26 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT id, name, aliases, description, entity_type, start_date, end_date, source 
-            FROM entities
-            WHERE id = ?
+            SELECT EntityID, DisplayName, Name, Aliases, Description, 
+                   EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+            FROM Entities
+            WHERE EntityID = ?
         """
         results = self.execute_query(query, (entity_id,))
         
         if results:
             return {
-                'id': results[0][0],
-                'name': results[0][1],
-                'aliases': results[0][2],
-                'description': results[0][3],
-                'entity_type': results[0][4],
-                'start_date': results[0][5],
-                'end_date': results[0][6],
-                'source': results[0][7]
+                'id': results[0][0],  # Keep 'id' for component compatibility
+                'display_name': results[0][1],
+                'name': results[0][2],
+                'aliases': results[0][3],
+                'description': results[0][4],
+                'entity_type': results[0][5],
+                'start_date': results[0][6],
+                'end_date': results[0][7],
+                'associated_persons': results[0][8],
+                'image_file': results[0][9],
+                'review_status': results[0][10]
             }
         
         return None
@@ -111,17 +132,21 @@ class EntityService(BaseService):
             DatabaseError: If operation fails
         """
         query = """
-            INSERT INTO entities (name, aliases, description, entity_type, start_date, end_date, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO Entities (DisplayName, Name, Aliases, Description, EntityType, 
+                                StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         params = (
+            entity_data.get('display_name', ''),
             entity_data.get('name', ''),
             entity_data.get('aliases', ''),
             entity_data.get('description', ''),
             entity_data.get('entity_type', ''),
             entity_data.get('start_date', ''),
             entity_data.get('end_date', ''),
-            entity_data.get('source', '')
+            entity_data.get('associated_persons', ''),
+            entity_data.get('image_file', ''),
+            entity_data.get('review_status', 'needs_review')
         )
         
         self.execute_update(query, params)
@@ -142,19 +167,22 @@ class EntityService(BaseService):
             DatabaseError: If operation fails
         """
         query = """
-            UPDATE entities
-            SET name = ?, aliases = ?, description = ?, entity_type = ?, 
-                start_date = ?, end_date = ?, source = ?
-            WHERE id = ?
+            UPDATE Entities
+            SET DisplayName = ?, Name = ?, Aliases = ?, Description = ?, EntityType = ?, 
+                StartDate = ?, EndDate = ?, AssociatedPersons = ?, ImageFile = ?, ReviewStatus = ?
+            WHERE EntityID = ?
         """
         params = (
+            entity_data.get('display_name', ''),
             entity_data.get('name', ''),
             entity_data.get('aliases', ''),
             entity_data.get('description', ''),
             entity_data.get('entity_type', ''),
             entity_data.get('start_date', ''),
             entity_data.get('end_date', ''),
-            entity_data.get('source', ''),
+            entity_data.get('associated_persons', ''),
+            entity_data.get('image_file', ''),
+            entity_data.get('review_status', 'needs_review'),
             entity_id
         )
         
@@ -174,7 +202,7 @@ class EntityService(BaseService):
         Raises:
             DatabaseError: If operation fails
         """
-        query = "DELETE FROM entities WHERE id = ?"
+        query = "DELETE FROM Entities WHERE EntityID = ?"
         rows_affected = self.execute_update(query, (entity_id,))
         return rows_affected > 0
     
@@ -192,12 +220,12 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT s.title, COUNT(em.id)
-            FROM entity_mentions em
-            JOIN sources s ON em.source_id = s.id
-            WHERE em.entity_id = ?
-            GROUP BY s.title
-            ORDER BY COUNT(em.id) DESC
+            SELECT s.Title, COUNT(em.MentionID)
+            FROM EntityMentions em
+            JOIN Sources s ON em.SourceID = s.SourceID
+            WHERE em.EntityID = ?
+            GROUP BY s.Title
+            ORDER BY COUNT(em.MentionID) DESC
         """
         return self.execute_query(query, (entity_id,))
     
@@ -215,8 +243,8 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT COUNT(*) FROM entity_mentions
-            WHERE entity_id = ?
+            SELECT COUNT(*) FROM EntityMentions
+            WHERE EntityID = ?
         """
         result = self.execute_query(query, (entity_id,))
         return result[0][0] if result else 0
@@ -237,17 +265,39 @@ class EntityService(BaseService):
         # Create a transaction to delete the entity and its references
         queries = [
             {
-                'query': "DELETE FROM entity_mentions WHERE entity_id = ?",
+                'query': "DELETE FROM EntityMentions WHERE EntityID = ?",
                 'params': (entity_id,)
             },
             {
-                'query': "DELETE FROM entities WHERE id = ?",
+                'query': "DELETE FROM Entities WHERE EntityID = ?",
                 'params': (entity_id,)
             }
         ]
         
         self.execute_transaction(queries)
         return True
+    
+    def get_events_for_entity(self, entity_id: int) -> List[Tuple]:
+        """
+        Get events associated with an entity.
+        
+        Args:
+            entity_id: ID of the entity
+            
+        Returns:
+            List of event records
+            
+        Raises:
+            DatabaseError: If query fails
+        """
+        query = """
+            SELECT e.EventID, e.EventDate, e.Title, e.Description, e.SourceID
+            FROM Events e
+            JOIN EntityMentions em ON e.EventID = em.EventID
+            WHERE em.EntityID = ?
+            ORDER BY e.EventDate DESC
+        """
+        return self.execute_query(query, (entity_id,))
     
     def get_entities_by_type(self, entity_type: str) -> List[Tuple]:
         """
@@ -263,10 +313,11 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT id, name, aliases, description, entity_type, start_date, end_date, source 
-            FROM entities
-            WHERE entity_type = ?
-            ORDER BY name
+            SELECT EntityID, DisplayName, Name, Aliases, Description, 
+                   EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+            FROM Entities
+            WHERE EntityType = ?
+            ORDER BY DisplayName
         """
         return self.execute_query(query, (entity_type,))
     
@@ -281,9 +332,34 @@ class EntityService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT DISTINCT entity_type 
-            FROM entities
-            ORDER BY entity_type
+            SELECT DISTINCT EntityType 
+            FROM Entities
+            WHERE EntityType IS NOT NULL AND EntityType != ''
+            ORDER BY EntityType
         """
         results = self.execute_query(query)
         return [result[0] for result in results if result[0]]
+
+    def search_by_alias(self, alias: str) -> List[Tuple]:
+        """
+        Search for entities by alias.
+        
+        Args:
+            alias: Alias to search for
+            
+        Returns:
+            List of entity records
+            
+        Raises:
+            DatabaseError: If query fails
+        """
+        query = """
+            SELECT EntityID, DisplayName, Name, Aliases, Description, 
+                   EntityType, StartDate, EndDate, AssociatedPersons, ImageFile, ReviewStatus
+            FROM Entities
+            WHERE DisplayName LIKE ? OR Name LIKE ? OR Aliases LIKE ?
+            ORDER BY DisplayName
+        """
+        params = (f"%{alias}%", f"%{alias}%", f"%{alias}%")
+        
+        return self.execute_query(query, params)

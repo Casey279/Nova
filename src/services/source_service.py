@@ -21,9 +21,10 @@ class SourceService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT id, title, author, source_type, publication_date, url 
-            FROM sources
-            ORDER BY title
+            SELECT SourceID, Title, Aliases, Author, SourceType, PublicationDate, 
+                   Publisher, City, State, Country, URL, FileName, ImportDate, ReviewStatus
+            FROM Sources
+            ORDER BY Title
         """
         return self.execute_query(query)
     
@@ -42,25 +43,43 @@ class SourceService(BaseService):
             DatabaseError: If query fails
         """
         if filter_column and filter_column.lower() != "all":
+            column = filter_column.lower()
+            # Map UI column names to database column names
+            column_mapping = {
+                "title": "Title",
+                "aliases": "Aliases",
+                "author": "Author",
+                "source_type": "SourceType",
+                "publication_date": "PublicationDate",
+                "publisher": "Publisher",
+                "city": "City",
+                "state": "State",
+                "country": "Country",
+                "url": "URL",
+                "file_name": "FileName",
+                "content": "Content"
+            }
+            db_column = column_mapping.get(column, column)
+            
             query = f"""
-                SELECT id, title, author, source_type, publication_date, url 
-                FROM sources
-                WHERE {filter_column.lower()} LIKE ?
-                ORDER BY title
+                SELECT SourceID, Title, Aliases, Author, SourceType, PublicationDate, 
+                       Publisher, City, State, Country, URL, FileName, ImportDate, ReviewStatus
+                FROM Sources
+                WHERE {db_column} LIKE ?
+                ORDER BY Title
             """
             params = (f"%{search_text}%",)
         else:
             query = """
-                SELECT id, title, author, source_type, publication_date, url 
-                FROM sources
-                WHERE title LIKE ? OR author LIKE ? OR source_type LIKE ? OR 
-                      publication_date LIKE ? OR url LIKE ? OR content LIKE ?
-                ORDER BY title
+                SELECT SourceID, Title, Aliases, Author, SourceType, PublicationDate, 
+                       Publisher, City, State, Country, URL, FileName, ImportDate, ReviewStatus
+                FROM Sources
+                WHERE Title LIKE ? OR Aliases LIKE ? OR Author LIKE ? OR 
+                      SourceType LIKE ? OR PublicationDate LIKE ? OR Content LIKE ?
+                ORDER BY Title
             """
-            params = (
-                f"%{search_text}%", f"%{search_text}%", f"%{search_text}%",
-                f"%{search_text}%", f"%{search_text}%", f"%{search_text}%"
-            )
+            params = (f"%{search_text}%", f"%{search_text}%", f"%{search_text}%", 
+                     f"%{search_text}%", f"%{search_text}%", f"%{search_text}%")
         
         return self.execute_query(query, params)
     
@@ -78,21 +97,31 @@ class SourceService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT id, title, author, source_type, publication_date, url, content 
-            FROM sources
-            WHERE id = ?
+            SELECT SourceID, Title, Aliases, Author, SourceType, PublicationDate, 
+                   Publisher, City, State, Country, URL, Content, FileName, 
+                   ImportDate, ReviewStatus
+            FROM Sources
+            WHERE SourceID = ?
         """
         results = self.execute_query(query, (source_id,))
         
         if results:
             return {
-                'id': results[0][0],
+                'id': results[0][0],  # Keep 'id' for component compatibility
                 'title': results[0][1],
-                'author': results[0][2],
-                'source_type': results[0][3],
-                'publication_date': results[0][4],
-                'url': results[0][5],
-                'content': results[0][6]
+                'aliases': results[0][2],
+                'author': results[0][3],
+                'source_type': results[0][4],
+                'publication_date': results[0][5],
+                'publisher': results[0][6],
+                'city': results[0][7],
+                'state': results[0][8],
+                'country': results[0][9],
+                'url': results[0][10],
+                'content': results[0][11],
+                'file_name': results[0][12],
+                'import_date': results[0][13],
+                'review_status': results[0][14]
             }
         
         return None
@@ -111,8 +140,10 @@ class SourceService(BaseService):
             DatabaseError: If operation fails
         """
         query = """
-            INSERT INTO sources (title, author, source_type, publication_date, url, content)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO Sources (Title, Aliases, Author, SourceType, PublicationDate, 
+                               Publisher, City, State, Country, URL, 
+                               Content, FileName, ImportDate, ReviewStatus)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         
         # Format date if provided
@@ -120,13 +151,27 @@ class SourceService(BaseService):
         if isinstance(pub_date, datetime):
             pub_date = pub_date.strftime('%Y-%m-%d')
         
+        import_date = source_data.get('import_date')
+        if not import_date:
+            import_date = datetime.now().strftime('%Y-%m-%d')
+        elif isinstance(import_date, datetime):
+            import_date = import_date.strftime('%Y-%m-%d')
+        
         params = (
             source_data.get('title', ''),
+            source_data.get('aliases', ''),
             source_data.get('author', ''),
             source_data.get('source_type', 'document'),
             pub_date,
+            source_data.get('publisher', ''),
+            source_data.get('city', ''),
+            source_data.get('state', ''),
+            source_data.get('country', ''),
             source_data.get('url', ''),
-            source_data.get('content', '')
+            source_data.get('content', ''),
+            source_data.get('file_name', ''),
+            import_date,
+            source_data.get('review_status', 'needs_review')
         )
         
         self.execute_update(query, params)
@@ -147,9 +192,11 @@ class SourceService(BaseService):
             DatabaseError: If operation fails
         """
         query = """
-            UPDATE sources
-            SET title = ?, author = ?, source_type = ?, publication_date = ?, url = ?, content = ?
-            WHERE id = ?
+            UPDATE Sources
+            SET Title = ?, Aliases = ?, Author = ?, SourceType = ?, PublicationDate = ?,
+                Publisher = ?, City = ?, State = ?, Country = ?, URL = ?,
+                Content = ?, FileName = ?, ImportDate = ?, ReviewStatus = ?
+            WHERE SourceID = ?
         """
         
         # Format date if provided
@@ -157,13 +204,25 @@ class SourceService(BaseService):
         if isinstance(pub_date, datetime):
             pub_date = pub_date.strftime('%Y-%m-%d')
         
+        import_date = source_data.get('import_date')
+        if isinstance(import_date, datetime):
+            import_date = import_date.strftime('%Y-%m-%d')
+        
         params = (
             source_data.get('title', ''),
+            source_data.get('aliases', ''),
             source_data.get('author', ''),
             source_data.get('source_type', 'document'),
             pub_date,
+            source_data.get('publisher', ''),
+            source_data.get('city', ''),
+            source_data.get('state', ''),
+            source_data.get('country', ''),
             source_data.get('url', ''),
             source_data.get('content', ''),
+            source_data.get('file_name', ''),
+            import_date,
+            source_data.get('review_status', 'needs_review'),
             source_id
         )
         
@@ -183,7 +242,7 @@ class SourceService(BaseService):
         Raises:
             DatabaseError: If operation fails
         """
-        query = "DELETE FROM sources WHERE id = ?"
+        query = "DELETE FROM Sources WHERE SourceID = ?"
         rows_affected = self.execute_update(query, (source_id,))
         return rows_affected > 0
     
@@ -205,22 +264,22 @@ class SourceService(BaseService):
             
             # Get character mentions
             cursor.execute("""
-                SELECT COUNT(*) FROM character_mentions
-                WHERE source_id = ?
+                SELECT COUNT(*) FROM CharacterMentions
+                WHERE SourceID = ?
             """, (source_id,))
             character_count = cursor.fetchone()[0]
             
             # Get location mentions
             cursor.execute("""
-                SELECT COUNT(*) FROM location_mentions
-                WHERE source_id = ?
+                SELECT COUNT(*) FROM LocationMentions
+                WHERE SourceID = ?
             """, (source_id,))
             location_count = cursor.fetchone()[0]
             
             # Get entity mentions
             cursor.execute("""
-                SELECT COUNT(*) FROM entity_mentions
-                WHERE source_id = ?
+                SELECT COUNT(*) FROM EntityMentions
+                WHERE SourceID = ?
             """, (source_id,))
             entity_count = cursor.fetchone()[0]
             
@@ -250,19 +309,19 @@ class SourceService(BaseService):
         """
         queries = [
             {
-                'query': "DELETE FROM character_mentions WHERE source_id = ?",
+                'query': "DELETE FROM CharacterMentions WHERE SourceID = ?",
                 'params': (source_id,)
             },
             {
-                'query': "DELETE FROM location_mentions WHERE source_id = ?",
+                'query': "DELETE FROM LocationMentions WHERE SourceID = ?",
                 'params': (source_id,)
             },
             {
-                'query': "DELETE FROM entity_mentions WHERE source_id = ?",
+                'query': "DELETE FROM EntityMentions WHERE SourceID = ?",
                 'params': (source_id,)
             },
             {
-                'query': "DELETE FROM sources WHERE id = ?",
+                'query': "DELETE FROM Sources WHERE SourceID = ?",
                 'params': (source_id,)
             }
         ]
@@ -281,9 +340,10 @@ class SourceService(BaseService):
             DatabaseError: If query fails
         """
         query = """
-            SELECT DISTINCT source_type 
-            FROM sources
-            ORDER BY source_type
+            SELECT DISTINCT SourceType 
+            FROM Sources
+            WHERE SourceType IS NOT NULL AND SourceType != ''
+            ORDER BY SourceType
         """
         results = self.execute_query(query)
         return [result[0] for result in results if result[0]]
@@ -301,10 +361,24 @@ class SourceService(BaseService):
         Raises:
             DatabaseError: If query fails
         """
-        query = "SELECT content FROM sources WHERE id = ?"
+        query = "SELECT Content FROM Sources WHERE SourceID = ?"
         results = self.execute_query(query, (source_id,))
         
         if results and results[0][0]:
             return results[0][0]
         
         return None
+        
+    def search_by_alias(self, alias: str) -> List[Tuple]:
+        """
+        Search for sources by alias.
+        
+        Args:
+            alias: Alias to search for
+            
+        Returns:
+            List of source records
+            
+        Raises:
+            DatabaseError: If query fails
+        """
