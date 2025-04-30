@@ -34,7 +34,7 @@ def get_table_info(table_name):
 # Uncomment the table you want to inspect
 if __name__ == "__main__":
     # Permanent Tables
-    # get_table_info("Events")
+    get_table_info("Events")
     # get_table_info("Locations")
     # get_table_info("Entities")
     # get_table_info("EventCharacters")
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     # get_table_info("QuaternaryCharacters")
     # get_table_info("TabEvents")
     # get_table_info("Sources")
-    get_table_info("Characters")
+    # get_table_info("Characters")
     # get_table_info("EventMetadata")
     
     # Transient Tables

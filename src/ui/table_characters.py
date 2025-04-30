@@ -8,7 +8,7 @@ class CharactersTable:
         self.db_path = db_path
         self.conn = None
         self.create_connection()
-        self.create_table()
+        
 
     def create_connection(self):
         """Create a database connection to SQLite database."""
@@ -17,30 +17,6 @@ class CharactersTable:
             print(f"Connected to database at {self.db_path}")
         except Error as e:
             print(f"Error connecting to database: {e}")
-
-    def create_table(self):
-        """Create the Characters table if it doesn't exist."""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Characters (
-                CharacterID INTEGER PRIMARY KEY AUTOINCREMENT,
-                DisplayName TEXT NOT NULL UNIQUE,
-                FirstName TEXT,
-                MiddleName TEXT,
-                LastName TEXT,
-                Title TEXT,
-                Suffix TEXT,
-                Aliases TEXT,
-                Description TEXT,
-                ImageFile TEXT,
-                Reviewed INTEGER DEFAULT 0
-            )
-            ''')
-            self.conn.commit()
-            print("Characters table created or verified successfully.")
-        except Error as e:
-            print(f"Error creating Characters table: {e}")
 
     def insert_character(self, display_name, first_name=None, middle_name=None, last_name=None, 
                         title=None, suffix=None, aliases=None, description=None, 

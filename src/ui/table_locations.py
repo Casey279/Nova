@@ -8,7 +8,7 @@ class LocationsTable:
         self.db_path = db_path
         self.conn = None
         self.create_connection()
-        self.create_table()
+        
 
     def create_connection(self):
         """Create a database connection to SQLite database."""
@@ -17,31 +17,6 @@ class LocationsTable:
             print(f"Connected to database at {self.db_path}")
         except Error as e:
             print(f"Error connecting to database: {e}")
-
-    def create_table(self):
-        """Create the Locations table if it doesn't exist."""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Locations (
-                LocationID INTEGER PRIMARY KEY AUTOINCREMENT,
-                DisplayName TEXT NOT NULL UNIQUE,
-                LocationName TEXT,
-                Aliases TEXT,
-                Description TEXT,
-                Coordinates TEXT,
-                Address TEXT,
-                City TEXT,
-                State TEXT,
-                Country TEXT,
-                ImageFile TEXT,
-                ReviewStatus TEXT DEFAULT 'needs_review'
-            )
-            ''')
-            self.conn.commit()
-            print("Locations table created or verified successfully.")
-        except Error as e:
-            print(f"Error creating Locations table: {e}")
 
     def insert_location(self, display_name, location_name=None, aliases=None, description=None, 
                         coordinates=None, address=None, city=None, state=None, country=None,

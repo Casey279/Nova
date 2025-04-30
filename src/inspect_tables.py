@@ -35,9 +35,9 @@ def inspect_table(db_path, table_name):
 db_path = "C:\\AI\\Nova\\src\\nova_database.db"
 
 # Uncomment the table you want to inspect:
-# inspect_table(db_path, "Events")
+inspect_table(db_path, "Events")
 # inspect_table(db_path, "Locations")
-inspect_table(db_path, "Entities")
+# inspect_table(db_path, "Entities")
 # inspect_table(db_path, "EventCharacters")
 # inspect_table(db_path, "EventLocations")
 # inspect_table(db_path, "EventEntities")

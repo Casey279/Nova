@@ -1,115 +1,90 @@
 # File: table_panel.py
 
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QAbstractItemView, QMenu, QAction)
-from PyQt5.QtCore import Qt, pyqtSignal, QPoint
-from PyQt5.QtGui import QCursor
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QListWidget, 
+                            QPushButton, QLabel, QLineEdit, QComboBox, QMessageBox)
+from PyQt5.QtCore import Qt, pyqtSignal
 
 class TablePanel(QWidget):
-    """
-    A reusable table panel component that can be used across different tabs.
-    Handles display of tabular data with context menu support.
-    """
+    """A reusable panel for displaying tabular data with optional filtering."""
     
-    # Define signals for table interactions
-    item_selected = pyqtSignal(int)  # Row ID selected
-    item_double_clicked = pyqtSignal(int)  # Row ID double-clicked
-    context_menu_requested = pyqtSignal(QPoint, int)  # Position, Row ID
+    # Define signals
+    item_selected = pyqtSignal(object)
     
-    def __init__(self, headers, parent=None):
-        """
-        Initialize the table panel with the specified headers.
-        
-        Args:
-            headers (list): List of column header strings
-            parent (QWidget, optional): Parent widget
-        """
+    def __init__(self, headers=None, data=None, item_double_clicked=None, parent=None):
         super().__init__(parent)
-        self.headers = headers
-        self.setup_ui()
-        
-    def setup_ui(self):
-        """Set up the UI components for the table panel."""
+        self.headers = headers or []
+        self.data = data or []
+        self.item_double_clicked_callback = item_double_clicked
+        self.init_ui()
+    
+    def init_ui(self):
+        """Initialize the UI components."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # Create table
-        self.table = QTableWidget()
-        self.table.setColumnCount(len(self.headers))
-        self.table.setHorizontalHeaderLabels(self.headers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setSortingEnabled(True)
+        # Search bar (optional)
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Search:"))
+        self.search_input = QLineEdit()
+        self.search_input.textChanged.connect(self.filter_items)
+        search_layout.addWidget(self.search_input)
+        layout.addLayout(search_layout)
         
-        # Connect signals
-        self.table.itemSelectionChanged.connect(self.on_selection_changed)
-        self.table.itemDoubleClicked.connect(self.on_item_double_clicked)
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self.on_context_menu)
-        
+        # Table/list widget
+        self.table = QListWidget()
+        if self.item_double_clicked_callback:
+            self.table.itemDoubleClicked.connect(self.item_double_clicked_callback)
+        self.table.itemClicked.connect(self.on_item_selected)
         layout.addWidget(self.table)
-        self.setLayout(layout)
-    
-    def on_selection_changed(self):
-        """Handle selection changes and emit the selected row ID."""
-        selected_items = self.table.selectedItems()
-        if selected_items:
-            row = selected_items[0].row()
-            # Get the ID from the hidden first column (assuming ID is stored there)
-            row_id = int(self.table.item(row, 0).data(Qt.UserRole))
-            self.item_selected.emit(row_id)
-    
-    def on_item_double_clicked(self, item):
-        """Handle double-click events and emit the selected row ID."""
-        row = item.row()
-        row_id = int(self.table.item(row, 0).data(Qt.UserRole))
-        self.item_double_clicked.emit(row_id)
-    
-    def on_context_menu(self, position):
-        """Handle context menu requests."""
-        selected_items = self.table.selectedItems()
-        if selected_items:
-            row = selected_items[0].row()
-            row_id = int(self.table.item(row, 0).data(Qt.UserRole))
-            # Emit signal with the position and ID
-            self.context_menu_requested.emit(QCursor.pos(), row_id)
-    
-    def clear_table(self):
-        """Clear all rows from the table."""
-        self.table.setRowCount(0)
-    
-    def populate_table(self, data, id_column=0):
-        """
-        Populate the table with data.
         
-        Args:
-            data (list): List of rows, where each row is a list of values
-            id_column (int): Index of the column containing the ID
-        """
-        self.clear_table()
-        self.table.setSortingEnabled(False)  # Disable sorting during update
-        
-        for row_idx, row_data in enumerate(data):
-            self.table.insertRow(row_idx)
-            
-            for col_idx, cell_data in enumerate(row_data):
-                item = QTableWidgetItem(str(cell_data))
-                
-                # Store the ID in the user role of the first column
-                if col_idx == 0:
-                    item.setData(Qt.UserRole, int(row_data[id_column]))
-                
-                self.table.setItem(row_idx, col_idx, item)
-        
-        self.table.setSortingEnabled(True)  # Re-enable sorting
-
-    def get_selected_row_id(self):
-        """Get the ID of the currently selected row."""
-        selected_items = self.table.selectedItems()
-        if selected_items:
-            row = selected_items[0].row()
-            return int(self.table.item(row, 0).data(Qt.UserRole))
+        # Populate with initial data
+        self.populate_table(self.data)
+    
+    def populate_table(self, data):
+        """Populate the table with data."""
+        self.table.clear()
+        for item in data:
+            self.add_item(item)
+    
+    def add_item(self, item_data):
+        """Add a single item to the table."""
+        # This is a simplified version assuming a list or string representation
+        # In a real implementation, you'd handle different column types
+        if isinstance(item_data, (list, tuple)):
+            # If it's a list or tuple, use the first element as display text
+            from PyQt5.QtWidgets import QListWidgetItem
+            list_item = QListWidgetItem(str(item_data[0]))
+            # Store the whole item data as user data
+            list_item.setData(Qt.UserRole, item_data)
+            self.table.addItem(list_item)
+        elif hasattr(item_data, '__dict__'):
+            # If it's an object, use __str__ for display and store the object
+            from PyQt5.QtWidgets import QListWidgetItem
+            list_item = QListWidgetItem(str(item_data))
+            list_item.setData(Qt.UserRole, item_data)
+            self.table.addItem(list_item)
+        else:
+            # For simple strings or other types
+            self.table.addItem(str(item_data))
+    
+    def clear(self):
+        """Clear all items from the table."""
+        self.table.clear()
+    
+    def get_selected_item(self):
+        """Get the currently selected item."""
+        items = self.table.selectedItems()
+        if items:
+            return items[0]
         return None
+    
+    def on_item_selected(self, item):
+        """Handle item selection and emit signal."""
+        self.item_selected.emit(item)
+    
+    def filter_items(self, text):
+        """Filter items based on search text."""
+        for i in range(self.table.count()):
+            item = self.table.item(i)
+            # Show/hide based on whether the search text is in the item text
+            item.setHidden(text.lower() not in item.text().lower())

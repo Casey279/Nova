@@ -8,7 +8,7 @@ class EntitiesTable:
         self.db_path = db_path
         self.conn = None
         self.create_connection()
-        self.create_table()
+        
 
     def create_connection(self):
         """Create a database connection to SQLite database."""
@@ -17,30 +17,6 @@ class EntitiesTable:
             print(f"Connected to database at {self.db_path}")
         except Error as e:
             print(f"Error connecting to database: {e}")
-
-    def create_table(self):
-        """Create the Entities table if it doesn't exist."""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Entities (
-                EntityID INTEGER PRIMARY KEY AUTOINCREMENT,
-                DisplayName TEXT NOT NULL UNIQUE,
-                Name TEXT,
-                Aliases TEXT,
-                Description TEXT,
-                EntityType TEXT,
-                StartDate TEXT,
-                EndDate TEXT,
-                AssociatedPersons TEXT,
-                ImageFile TEXT,
-                ReviewStatus TEXT DEFAULT 'needs_review'
-            )
-            ''')
-            self.conn.commit()
-            print("Entities table created or verified successfully.")
-        except Error as e:
-            print(f"Error creating Entities table: {e}")
 
     def insert_entity(self, display_name, name=None, aliases=None, description=None, 
                      entity_type=None, start_date=None, end_date=None, associated_persons=None,

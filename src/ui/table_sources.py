@@ -8,7 +8,7 @@ class SourcesTable:
         self.db_path = db_path
         self.conn = None
         self.create_connection()
-        self.create_table()
+        
 
     def create_connection(self):
         """Create a database connection to SQLite database."""
@@ -17,34 +17,6 @@ class SourcesTable:
             print(f"Connected to database at {self.db_path}")
         except Error as e:
             print(f"Error connecting to database: {e}")
-
-    def create_table(self):
-        """Create the Sources table if it doesn't exist."""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS Sources (
-                SourceID INTEGER PRIMARY KEY AUTOINCREMENT,
-                Title TEXT NOT NULL,
-                Aliases TEXT,
-                Author TEXT,
-                SourceType TEXT,
-                PublicationDate TEXT,
-                Publisher TEXT,
-                City TEXT,
-                State TEXT,
-                Country TEXT,
-                URL TEXT,
-                Content TEXT,
-                FileName TEXT,
-                ImportDate TEXT,
-                ReviewStatus TEXT DEFAULT 'needs_review'
-            )
-            ''')
-            self.conn.commit()
-            print("Sources table created or verified successfully.")
-        except Error as e:
-            print(f"Error creating Sources table: {e}")
 
     def insert_source(self, title, aliases=None, author=None, source_type=None, publication_date=None,
                      publisher=None, city=None, state=None, country=None, url=None,

@@ -51,6 +51,7 @@ class DatabaseManager:
                     EventText TEXT,
                     SourceType TEXT,
                     SourceName TEXT,
+                    PageNumber TEXT,  
                     Filename TEXT,
                     FilePath TEXT,
                     SourceID INTEGER,

@@ -26,7 +26,7 @@ class EventService(BaseService):
         """
         query = """
             SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
-            FROM events e
+            FROM Events e
             LEFT JOIN sources s ON e.SourceID = s.SourceID
             ORDER BY e.EventDate DESC
             LIMIT ? OFFSET ?
@@ -43,7 +43,7 @@ class EventService(BaseService):
         Raises:
             DatabaseError: If query fails
         """
-        query = "SELECT COUNT(*) FROM events"
+        query = "SELECT COUNT(*) FROM Events"
         result = self.execute_query(query)
         return result[0][0] if result else 0
     
@@ -69,7 +69,7 @@ class EventService(BaseService):
         if start_date and end_date:
             query = """
                 SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
-                FROM events e
+                FROM Events e
                 LEFT JOIN sources s ON e.SourceID = s.SourceID
                 WHERE e.EventDate BETWEEN ? AND ?
                 ORDER BY e.EventDate DESC
@@ -79,7 +79,7 @@ class EventService(BaseService):
         elif start_date:
             query = """
                 SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
-                FROM events e
+                FROM Events e
                 LEFT JOIN sources s ON e.SourceID = s.SourceID
                 WHERE e.EventDate >= ?
                 ORDER BY e.EventDate DESC
@@ -89,7 +89,7 @@ class EventService(BaseService):
         elif end_date:
             query = """
                 SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
-                FROM events e
+                FROM Events e
                 LEFT JOIN sources s ON e.SourceID = s.SourceID
                 WHERE e.EventDate <= ?
                 ORDER BY e.EventDate DESC
@@ -120,7 +120,7 @@ class EventService(BaseService):
         """
         query = """
             SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
-            FROM events e
+            FROM Events e
             LEFT JOIN sources s ON e.SourceID = s.SourceID
             WHERE e.EventTitle LIKE ? OR e.EventText LIKE ?
             ORDER BY e.EventDate DESC
@@ -148,7 +148,7 @@ class EventService(BaseService):
             SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, 
                    e.SourceID, s.SourceName as source_title,
                    e.page_number, e.confidence, e.verified
-            FROM events e
+            FROM Events e
             LEFT JOIN sources s ON e.SourceID = s.SourceID
             WHERE e.EventID = ?
         """
@@ -281,7 +281,7 @@ class EventService(BaseService):
         """
         query = """
             SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
-            FROM events e
+            FROM Events e
             LEFT JOIN sources s ON e.SourceID = s.SourceID
             WHERE e.EventDate = ?
             ORDER BY e.EventTitle
@@ -303,7 +303,7 @@ class EventService(BaseService):
         """
         query = """
             SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
-            FROM events e
+            FROM Events e
             JOIN character_mentions cm ON e.EventID = cm.event_id
             LEFT JOIN sources s ON e.SourceID = s.SourceID
             WHERE cm.character_id = ?
@@ -326,7 +326,7 @@ class EventService(BaseService):
         """
         query = """
             SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
-            FROM events e
+            FROM Events e
             JOIN location_mentions lm ON e.EventID = lm.event_id
             LEFT JOIN sources s ON e.SourceID = s.SourceID
             WHERE lm.location_id = ?
@@ -349,7 +349,7 @@ class EventService(BaseService):
         """
         query = """
             SELECT e.EventID, e.EventDate, e.EventTitle, e.EventText, e.SourceID, s.SourceName as source_title 
-            FROM events e
+            FROM Events e
             JOIN entity_mentions em ON e.EventID = em.event_id
             LEFT JOIN sources s ON e.SourceID = s.SourceID
             WHERE em.entity_id = ?

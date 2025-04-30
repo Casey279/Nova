@@ -320,7 +320,58 @@ class ResearchImportTab(QWidget):
         self.file_list.clear()
         self.import_button.setEnabled(False)
         self.metadata_preview.clear()
-    
+
+    def set_project_info(self, project_folder):
+        """
+        Update the tab with the selected project folder information.
+        
+        Args:
+            project_folder (str): Path to the selected project folder
+        """
+        # Store the project folder path
+        self.project_folder = project_folder
+        self.last_directory = project_folder
+        
+        # Update UI to show current project
+        project_name = os.path.basename(project_folder)
+        self.status_label.setText(f"Current Project: {project_name}")
+        
+        # Clear existing files
+        self.clear_file_list()
+        
+        # Optionally, list files from the project folder
+        try:
+            # Get filter extensions based on current selection
+            filter_text = self.file_type_combo.currentText()
+            
+            if filter_text == "All Files (*.*)":
+                # Import all supported file types
+                extensions = ['.txt', '.pdf', '.doc', '.docx', '.csv', '.xls', '.xlsx']
+            else:
+                # Extract extensions from filter text
+                extensions = []
+                start_idx = filter_text.find('(')
+                end_idx = filter_text.find(')')
+                
+                if start_idx != -1 and end_idx != -1:
+                    extensions_str = filter_text[start_idx+1:end_idx]
+                    extensions = [ext.strip() for ext in extensions_str.split(';')]
+                    extensions = [ext[1:] if ext.startswith('*.') else ext for ext in extensions]
+            
+            # Get all files in directory with matching extensions
+            file_paths = []
+            for root, _, files in os.walk(project_folder):
+                for file in files:
+                    file_ext = os.path.splitext(file)[1].lower()
+                    if any(file_ext == ext.lower() for ext in extensions):
+                        file_paths.append(os.path.join(root, file))
+            
+            # Add files to list
+            self.add_files_to_list(file_paths)
+            
+        except Exception as e:
+            self.status_label.setText(f"Error loading project files: {str(e)}")
+
     def update_metadata_preview(self):
         """Update metadata preview based on selected file."""
         selected_items = self.file_list.selectedItems()
