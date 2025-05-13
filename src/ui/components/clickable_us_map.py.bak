@@ -1,0 +1,538 @@
+"""
+Clickable US Map Widget
+
+This module provides a widget that displays a clickable US map for selecting states.
+"""
+
+import os
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QGridLayout, QSizePolicy
+from PyQt5.QtSvg import QSvgWidget
+from PyQt5.QtCore import Qt, pyqtSignal, QPointF, QRectF, QSizeF
+from PyQt5.QtGui import QColor, QPainter, QPen, QBrush
+
+# State data: abbreviation -> (full name, clickable on map)
+# Some small states need special handling
+STATE_DATA = {
+    "AL": ("Alabama", True),
+    "AK": ("Alaska", True),
+    "AZ": ("Arizona", True),
+    "AR": ("Arkansas", True),
+    "CA": ("California", True),
+    "CO": ("Colorado", True),
+    "CT": ("Connecticut", False),  # Small state, needs sidebar
+    "DE": ("Delaware", False),     # Small state, needs sidebar
+    "DC": ("District of Columbia", False),  # Not on standard maps
+    "FL": ("Florida", True),
+    "GA": ("Georgia", True),
+    "HI": ("Hawaii", True),
+    "ID": ("Idaho", True),
+    "IL": ("Illinois", True),
+    "IN": ("Indiana", True),
+    "IA": ("Iowa", True),
+    "KS": ("Kansas", True),
+    "KY": ("Kentucky", True),
+    "LA": ("Louisiana", True),
+    "ME": ("Maine", True),
+    "MD": ("Maryland", False),     # Small state, needs sidebar
+    "MA": ("Massachusetts", False), # Small state, needs sidebar
+    "MI": ("Michigan", True),
+    "MN": ("Minnesota", True),
+    "MS": ("Mississippi", True),
+    "MO": ("Missouri", True),
+    "MT": ("Montana", True),
+    "NE": ("Nebraska", True),
+    "NV": ("Nevada", True),
+    "NH": ("New Hampshire", False), # Small state, needs sidebar
+    "NJ": ("New Jersey", False),    # Small state, needs sidebar
+    "NM": ("New Mexico", True),
+    "NY": ("New York", True),
+    "NC": ("North Carolina", True),
+    "ND": ("North Dakota", True),
+    "OH": ("Ohio", True),
+    "OK": ("Oklahoma", True),
+    "OR": ("Oregon", True),
+    "PA": ("Pennsylvania", True),
+    "RI": ("Rhode Island", False),  # Small state, needs sidebar
+    "SC": ("South Carolina", True),
+    "SD": ("South Dakota", True),
+    "TN": ("Tennessee", True),
+    "TX": ("Texas", True),
+    "UT": ("Utah", True),
+    "VT": ("Vermont", False),       # Small state, needs sidebar
+    "VA": ("Virginia", True),
+    "WA": ("Washington", True),
+    "WV": ("West Virginia", True),
+    "WI": ("Wisconsin", True),
+    "WY": ("Wyoming", True),
+    "PR": ("Puerto Rico", False),    # Not on standard maps
+    "VI": ("Virgin Islands", False)  # Not on standard maps
+}
+
+# State to SVG class mapping - lowercase class names in the SVG
+STATE_SVG_CLASSES = {
+    "AL": "al",
+    "AK": "ak",
+    "AZ": "az",
+    "AR": "ar",
+    "CA": "ca",
+    "CO": "co",
+    "CT": "ct",
+    "DE": "de",
+    "FL": "fl",
+    "GA": "ga",
+    "HI": "hi",
+    "ID": "id",
+    "IL": "il",
+    "IN": "in",
+    "IA": "ia",
+    "KS": "ks",
+    "KY": "ky",
+    "LA": "la",
+    "ME": "me",
+    "MD": "md",
+    "MA": "ma",
+    "MI": "mi",
+    "MN": "mn",
+    "MS": "ms",
+    "MO": "mo",
+    "MT": "mt",
+    "NE": "ne",
+    "NV": "nv",
+    "NH": "nh",
+    "NJ": "nj",
+    "NM": "nm",
+    "NY": "ny",
+    "NC": "nc",
+    "ND": "nd",
+    "OH": "oh",
+    "OK": "ok",
+    "OR": "or",
+    "PA": "pa",
+    "RI": "ri",
+    "SC": "sc",
+    "SD": "sd",
+    "TN": "tn",
+    "TX": "tx",
+    "UT": "ut",
+    "VT": "vt",
+    "VA": "va",
+    "WA": "wa",
+    "WV": "wv",
+    "WI": "wi",
+    "WY": "wy"
+}
+
+
+class ClickableUSMapWidget(QWidget):
+    """
+    A widget that displays a clickable US map for selecting states.
+    
+    The widget includes the map and small-state buttons for states that are
+    too small to click on the map.
+    """
+    
+    # Signal emitted when a state is selected (state abbreviation)
+    state_selected = pyqtSignal(str)
+    
+    def __init__(self, parent=None):
+        """Initialize the widget with the US map and small-state buttons."""
+        super().__init__(parent)
+        
+        # Set up the main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Get the path to the SVG file
+        svg_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                                "assets", "uimaps", "clickable_us_map.svg")
+        
+        # Create the clickable SVG map
+        self.map_widget = ClickableUSMapSVG(svg_path)
+        self.map_widget.state_selected.connect(self.on_state_selected)
+        main_layout.addWidget(self.map_widget)
+        
+        # Create a grid of buttons for small states
+        small_states_layout = QGridLayout()
+        small_states_layout.setContentsMargins(5, 0, 5, 0)
+        small_states_layout.setSpacing(2)
+        
+        # Header for small states
+        small_states_header = QLabel("Small Eastern States:")
+        small_states_header.setAlignment(Qt.AlignCenter)
+        small_states_header.setStyleSheet("font-weight: bold;")
+        small_states_layout.addWidget(small_states_header, 0, 0, 1, 4)
+        
+        # Add buttons for small states
+        row, col = 1, 0
+        for abbrev, (name, clickable) in STATE_DATA.items():
+            if not clickable:
+                button = StateButton(abbrev, name)
+                button.clicked.connect(self.on_state_selected)
+                small_states_layout.addWidget(button, row, col)
+                col += 1
+                if col >= 4:  # 4 buttons per row
+                    col = 0
+                    row += 1
+        
+        main_layout.addLayout(small_states_layout)
+        
+        # Set the widget size policy
+        self.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
+    
+    def on_state_selected(self, state_abbrev):
+        """Handle state selection from either the map or the small-state buttons."""
+        # Print debug information
+        print(f"State selected in widget: {state_abbrev}")
+
+        # Update the visual selection in the map
+        if state_abbrev in STATE_SVG_CLASSES:
+            # Get the SVG class for this state
+            svg_class = STATE_SVG_CLASSES[state_abbrev]
+            # Set this as the selected state in the map widget
+            self.map_widget.selected_state = svg_class
+            self.map_widget.update()
+
+        # Emit the signal to inform parent widgets about the selection
+        self.state_selected.emit(state_abbrev)
+
+    def set_selected_state(self, state_abbrev):
+        """Set the selected state programmatically."""
+        # Only proceed if the state abbreviation is valid
+        if state_abbrev in STATE_SVG_CLASSES:
+            # Update the visual selection
+            svg_class = STATE_SVG_CLASSES[state_abbrev]
+            self.map_widget.selected_state = svg_class
+            self.map_widget.update()
+            return True
+        return False
+
+
+class ClickableUSMapSVG(QSvgWidget):
+    """
+    A clickable SVG widget that displays the US map.
+    
+    When a state is clicked, the state_selected signal is emitted with
+    the state's abbreviation.
+    """
+    
+    # Signal emitted when a state is selected (state abbreviation)
+    state_selected = pyqtSignal(str)
+    
+    def __init__(self, svg_path, parent=None):
+        """Initialize the widget with the specified SVG file."""
+        super().__init__(parent)
+        
+        # Load the SVG
+        if os.path.exists(svg_path):
+            self.load(svg_path)
+        else:
+            print(f"WARNING: SVG map file not found at {svg_path}")
+
+        # Set fixed size constraints to prevent the map from being too large
+        self.setMinimumSize(300, 186)  # 300x186 maintains the correct 959x593 aspect ratio
+        self.setMaximumSize(400, 248)  # 400x248 maintains the same aspect ratio
+
+        # Ensure the map maintains its aspect ratio
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+
+        # Set cursor to pointing hand
+        self.setCursor(Qt.PointingHandCursor)
+
+        # Currently highlighted state
+        self.highlighted_state = None
+
+        # Currently selected state
+        self.selected_state = None
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press events to select states."""
+        # Get the SVG element class name at the click position
+        state_class = self.find_state_at_position(event.pos())
+
+        print(f"Mouse press at {event.pos().x()}, {event.pos().y()}, found state class: {state_class}")
+
+        if state_class:
+            # Find the corresponding state abbreviation
+            for abbrev, svg_class in STATE_SVG_CLASSES.items():
+                if svg_class == state_class:
+                    # Print debug info
+                    print(f"Selecting state: {abbrev} ({svg_class})")
+
+                    # Update the selected state
+                    self.selected_state = state_class
+                    self.update()  # Trigger repaint
+
+                    # Emit the signal with the state abbreviation
+                    self.state_selected.emit(abbrev)
+                    break
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move events to highlight hovered states."""
+        state_class = self.find_state_at_position(event.pos())
+
+        # If we've moved to a different state, update highlighting
+        if state_class != self.highlighted_state:
+            # This avoids printing debug messages for every mouse movement
+            # but still shows hover highlight
+            old_state = self.highlighted_state
+            self.highlighted_state = state_class
+
+            # Only show debug message when we enter or leave a state
+            if state_class and not old_state:
+                print(f"Entering state: {state_class}")
+            elif old_state and not state_class:
+                print(f"Leaving state: {old_state}")
+
+            self.update()  # Trigger repaint
+
+    def find_state_at_position(self, pos):
+        """
+        Find the state SVG element class at the given position.
+
+        In our SVG, states are identified by class attributes (e.g., class="ca" for California).
+        This method determines which state is at the given mouse position.
+
+        Returns the state class name or None if not found.
+        """
+        # A simplified approach - for each click, check all states
+        # This is a brute force approach but it's reliable
+
+        # Use widget coordinates directly
+        x, y = pos.x(), pos.y()
+
+        # For debugging purposes
+        # Calculate scale factor based on widget size vs SVG size
+        # The original SVG is 959x593, but our widget is smaller
+        width_scale = self.width() / 959.0
+        height_scale = self.height() / 593.0
+
+        print(f"Click at position: ({x}, {y})")
+        print(f"Widget size: {self.width()}x{self.height()}, scale factors: width={width_scale:.2f}, height={height_scale:.2f}")
+
+        # Helper function to check if a point is in a scaled rectangle
+        def in_scaled_rect(x, y, x1, y1, x2, y2):
+            """Check if (x,y) is in the rectangle defined by (x1,y1)-(x2,y2) after scaling."""
+            scaled_x1 = x1 * width_scale
+            scaled_y1 = y1 * height_scale
+            scaled_x2 = x2 * width_scale
+            scaled_y2 = y2 * height_scale
+            return (scaled_x1 <= x <= scaled_x2) and (scaled_y1 <= y <= scaled_y2)
+
+        # We'll check each state against the click position
+        # Start with states that are clickable on the map
+        for abbrev, svg_class in STATE_SVG_CLASSES.items():
+            # Only check states that are clickable on the map
+            clickable = True
+            if abbrev in STATE_DATA:
+                clickable = STATE_DATA[abbrev][1]
+
+            if not clickable:
+                continue
+
+            # Simple hit testing based on the state's general area
+            # These values are approximate and may need adjustment
+            hit = False
+
+            # Northeast states
+            if abbrev == 'ME' and x > 850 and x < 900 and y > 120 and y < 170:
+                hit = True
+            elif abbrev == 'NH' and x > 860 and x < 880 and y > 170 and y < 190:
+                hit = True
+            elif abbrev == 'VT' and x > 840 and x < 860 and y > 170 and y < 190:
+                hit = True
+            elif abbrev == 'NY' and x > 820 and x < 860 and y > 190 and y < 230:
+                hit = True
+            elif abbrev == 'PA' and x > 800 and x < 850 and y > 230 and y < 260:
+                hit = True
+            elif abbrev == 'NJ' and x > 850 and x < 870 and y > 240 and y < 260:
+                hit = True
+            elif abbrev == 'MA' and x > 860 and x < 890 and y > 190 and y < 200:
+                hit = True
+
+            # Southeast
+            elif abbrev == 'FL' and x > 750 and x < 800 and y > 420 and y < 470:
+                hit = True
+            elif abbrev == 'GA' and x > 740 and x < 780 and y > 380 and y < 420:
+                hit = True
+            elif abbrev == 'SC' and x > 780 and x < 820 and y > 360 and y < 400:
+                hit = True
+            elif abbrev == 'NC' and x > 780 and x < 840 and y > 330 and y < 360:
+                hit = True
+            elif abbrev == 'VA' and x > 780 and x < 830 and y > 300 and y < 330:
+                hit = True
+            elif abbrev == 'WV' and x > 760 and x < 800 and y > 280 and y < 310:
+                hit = True
+
+            # Mid-Atlantic
+            elif abbrev == 'OH' and x > 720 and x < 760 and y > 260 and y < 300:
+                hit = True
+            elif abbrev == 'KY' and x > 700 and x < 760 and y > 300 and y < 330:
+                hit = True
+            elif abbrev == 'TN' and x > 680 and x < 750 and y > 330 and y < 350:
+                hit = True
+            elif abbrev == 'AL' and x > 700 and x < 730 and y > 350 and y < 400:
+                hit = True
+            elif abbrev == 'MS' and x > 660 and x < 700 and y > 360 and y < 410:
+                hit = True
+
+            # Midwest
+            elif abbrev == 'MI' and x > 700 and x < 740 and y > 220 and y < 260:
+                hit = True
+            elif abbrev == 'IN' and x > 700 and x < 730 and y > 260 and y < 300:
+                hit = True
+            elif abbrev == 'IL' and x > 660 and x < 700 and y > 250 and y < 310:
+                hit = True
+            elif abbrev == 'WI' and x > 640 and x < 680 and y > 200 and y < 240:
+                hit = True
+            elif abbrev == 'MN' and x > 600 and x < 640 and y > 170 and y < 220:
+                hit = True
+            elif abbrev == 'IA' and x > 600 and x < 650 and y > 240 and y < 270:
+                hit = True
+            elif abbrev == 'MO' and x > 600 and x < 650 and y > 270 and y < 320:
+                hit = True
+            elif abbrev == 'AR' and x > 600 and x < 650 and y > 320 and y < 360:
+                hit = True
+            elif abbrev == 'LA' and x > 600 and x < 650 and y > 360 and y < 400:
+                hit = True
+
+            # Great Plains
+            elif abbrev == 'ND' and x > 540 and x < 580 and y > 180 and y < 210:
+                hit = True
+            elif abbrev == 'SD' and x > 540 and x < 580 and y > 210 and y < 240:
+                hit = True
+            elif abbrev == 'NE' and x > 540 and x < 600 and y > 240 and y < 270:
+                hit = True
+            elif abbrev == 'KS' and x > 540 and x < 600 and y > 270 and y < 300:
+                hit = True
+            elif abbrev == 'OK' and x > 540 and x < 600 and y > 300 and y < 340:
+                hit = True
+            elif abbrev == 'TX' and x > 500 and x < 580 and y > 340 and y < 420:
+                hit = True
+
+            # Mountain West
+            elif abbrev == 'MT' and x > 460 and x < 540 and y > 170 and y < 210:
+                hit = True
+            elif abbrev == 'WY' and x > 460 and x < 520 and y > 210 and y < 240:
+                hit = True
+            elif abbrev == 'CO' and x > 460 and x < 520 and y > 240 and y < 280:
+                hit = True
+            elif abbrev == 'NM' and x > 460 and x < 520 and y > 280 and y < 330:
+                hit = True
+            elif abbrev == 'AZ' and x > 400 and x < 460 and y > 270 and y < 330:
+                hit = True
+            elif abbrev == 'UT' and x > 400 and x < 460 and y > 230 and y < 270:
+                hit = True
+            elif abbrev == 'ID' and x > 400 and x < 460 and y > 170 and y < 230:
+                hit = True
+
+            # West Coast
+            elif abbrev == 'WA' and x > 350 and x < 400 and y > 150 and y < 180:
+                hit = True
+            elif abbrev == 'OR' and x > 350 and x < 400 and y > 180 and y < 220:
+                hit = True
+            elif abbrev == 'CA' and in_scaled_rect(x, y, 300, 220, 390, 320):
+                hit = True
+            elif abbrev == 'NV' and x > 350 and x < 400 and y > 220 and y < 270:
+                hit = True
+
+            # Non-contiguous
+            elif abbrev == 'AK' and x > 120 and x < 200 and y > 350 and y < 430:
+                hit = True
+            elif abbrev == 'HI' and x > 250 and x < 350 and y > 400 and y < 450:
+                hit = True
+
+            if hit:
+                print(f"Hit state: {abbrev} ({svg_class})")
+                return svg_class
+
+        return None
+    
+    def paintEvent(self, event):
+        """
+        Custom paint event to draw the SVG with state highlighting and selection.
+
+        This implementation uses QSvgRenderer directly to render the SVG
+        and adds visual effects for hover and selection states.
+        """
+        # Create a painter for the widget
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Render the base SVG
+        renderer = self.renderer()
+        if renderer:
+            renderer.render(painter)
+
+            # Apply hover effect if a state is highlighted
+            if self.highlighted_state and self.highlighted_state != self.selected_state:
+                # Show hover effect for the highlighted state
+                state_id = self.highlighted_state
+                if renderer.elementExists(state_id):
+                    # Draw the highlighted state with a darker gray
+                    bounds = renderer.boundsOnElement(state_id)
+                    path = renderer.transformForElement(state_id).map(QRectF(0, 0, bounds.width(), bounds.height()))
+                    # Darker, more noticeable hover color (dark gray)
+                    painter.fillRect(path.toRect(), QColor(80, 80, 80, 200))
+
+            # Apply selection effect if a state is selected
+            if self.selected_state:
+                # Show selection effect for the selected state
+                state_id = self.selected_state
+                if renderer.elementExists(state_id):
+                    # Draw the selected state with bright red
+                    bounds = renderer.boundsOnElement(state_id)
+                    path = renderer.transformForElement(state_id).map(QRectF(0, 0, bounds.width(), bounds.height()))
+                    # Bright red selection color as requested
+                    painter.fillRect(path.toRect(), QColor(220, 30, 30, 200))
+
+        else:
+            # Fallback rendering if the SVG renderer is not available
+            super().paintEvent(event)
+
+
+class StateButton(QLabel):
+    """
+    A clickable label that represents a small state.
+    
+    When clicked, the clicked signal is emitted with the state's abbreviation.
+    """
+    
+    # Signal emitted when the button is clicked (state abbreviation)
+    clicked = pyqtSignal(str)
+    
+    def __init__(self, state_abbrev, state_name, parent=None):
+        """Initialize the button with the state abbreviation and name."""
+        super().__init__(parent)
+        
+        self.state_abbrev = state_abbrev
+        self.state_name = state_name
+        
+        # Set the text to the state abbreviation
+        self.setText(state_abbrev)
+        
+        # Set the tooltip to the state name
+        self.setToolTip(state_name)
+        
+        # Set up the appearance
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet("""
+            QLabel {
+                border: 1px solid #999;
+                border-radius: 3px;
+                padding: 3px;
+                background-color: #f0f0f0;
+                font-weight: bold;
+            }
+            QLabel:hover {
+                background-color: #e0e0e0;
+                border-color: #666;
+            }
+        """)
+        
+        # Set cursor to pointing hand
+        self.setCursor(Qt.PointingHandCursor)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press events to emit the clicked signal."""
+        self.clicked.emit(self.state_abbrev)
+        super().mousePressEvent(event)

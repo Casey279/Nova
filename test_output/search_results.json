@@ -1,0 +1,24 @@
+{
+  "search_params": {
+    "lccn": "sn83045604",
+    "date_start": "1891-04-01",
+    "date_end": "1891-04-30"
+  },
+  "total_pages_found": 44,
+  "unique_dates": 8,
+  "pagination_info": {
+    "total_items": 272,
+    "total_pages": 14,
+    "current_page": 1
+  },
+  "date_distribution": {
+    "1891-04-01": 8,
+    "1891-04-02": 8,
+    "1891-04-05": 16,
+    "1891-04-08": 8,
+    "1891-04-11": 1,
+    "1891-04-12": 1,
+    "1891-04-24": 1,
+    "1891-04-28": 1
+  }
+}

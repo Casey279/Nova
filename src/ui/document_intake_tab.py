@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLine
                             QLabel, QPushButton, QFileDialog, QListWidget, QRadioButton,
                             QTextEdit, QMessageBox, QGraphicsView, QGraphicsScene, QButtonGroup, QCheckBox,
                             QGraphicsPixmapItem, QGraphicsRectItem, QListWidgetItem, QGroupBox, QComboBox, QGraphicsItem)
+from ui.components.table_panel import TablePanel
 from PyQt5.QtGui import QPixmap, QPen, QColor, QIcon, QImage, QPainter, QBrush
 from PyQt5.QtCore import Qt, QRectF, QSize, QPointF
 from PIL import Image
@@ -32,6 +33,7 @@ class DocumentViewer(QGraphicsView):
         self.zoom_level = 1.0
         self.clipped_areas = []
         self.start_pos = None  # Add this to track initial click position
+        self.selections = []  # Initialize selections list
         
         # Colors for visual feedback
         self.highlight_color = QColor(255, 255, 0, 64)  # Light yellow for saved highlights
@@ -317,9 +319,10 @@ class DocumentIntakeTab(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        self.file_list = QListWidget()
-        self.file_list.itemClicked.connect(self.load_file)
-        layout.addWidget(self.file_list)
+        # Create a TablePanel for the file list
+        self.file_list_panel = TablePanel()
+        self.file_list_panel.item_selected.connect(self.load_file)
+        layout.addWidget(self.file_list_panel)
 
         folder_buttons = QHBoxLayout()
         intake_button = QPushButton("Intake Files")
@@ -700,9 +703,11 @@ class DocumentIntakeTab(QWidget):
             self.selection_toggle.setChecked(False)
 
     def refresh_file_list(self):
-        self.file_list.clear()
         folder_path = self.multi_column_dir if self.current_folder_type == 'multicolumn' else self.intake_dir
         print(f"Refreshing file list from: {folder_path}")
+        
+        # Create a list to store files
+        file_list = []
         
         if os.path.exists(folder_path):
             try:
@@ -722,7 +727,7 @@ class DocumentIntakeTab(QWidget):
                 for file in all_files:
                     if file.lower().endswith(('.png', '.jpg', '.jpeg')):
                         print(f"Adding file to list: {file}")
-                        self.file_list.addItem(file)
+                        file_list.append(file)
                     else:
                         print(f"Skipping non-image file: {file}")
                         
@@ -731,12 +736,18 @@ class DocumentIntakeTab(QWidget):
         else:
             print(f"Directory does not exist: {folder_path}")
         
-        print(f"Total files in list: {self.file_list.count()}")
+        # Update the TablePanel with the file list
+        self.file_list_panel.clear()
+        self.file_list_panel.populate_table(file_list)
+        
+        print(f"Total files in list: {len(file_list)}")
 
     def load_file(self, item):
         if not item:
             return
             
+        # Get the file name from the item
+        # For TablePanel, item is a QListWidgetItem
         file_name = item.text()
         folder_path = self.multi_column_dir if self.current_folder_type == 'multicolumn' else self.intake_dir
         file_path = os.path.join(folder_path, file_name)

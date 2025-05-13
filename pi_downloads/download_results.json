@@ -1,0 +1,58 @@
+{
+  "lccn": "sn83045604",
+  "content_types": [
+    "image_jpeg",
+    "ocr_txt"
+  ],
+  "date": "2025-05-07T16:12:36.474387",
+  "results": [
+    {
+      "date": "1892-07-24",
+      "edition": "1",
+      "results": {
+        "image_jpeg": false,
+        "ocr_txt": false
+      }
+    },
+    {
+      "date": "1892-09-03",
+      "edition": "1",
+      "results": {
+        "image_jpeg": false,
+        "ocr_txt": false
+      }
+    },
+    {
+      "date": "1892-09-09",
+      "edition": "1",
+      "results": {
+        "image_jpeg": false,
+        "ocr_txt": false
+      }
+    },
+    {
+      "date": "1892-11-24",
+      "edition": "1",
+      "results": {
+        "image_jpeg": false,
+        "ocr_txt": false
+      }
+    },
+    {
+      "date": "1892-12-18",
+      "edition": "1",
+      "results": {
+        "image_jpeg": false,
+        "ocr_txt": false
+      }
+    },
+    {
+      "date": "1892-12-25",
+      "edition": "1",
+      "results": {
+        "image_jpeg": false,
+        "ocr_txt": false
+      }
+    }
+  ]
+}

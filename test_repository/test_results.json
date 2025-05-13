@@ -1,0 +1,18 @@
+{
+  "download": {
+    "success": false,
+    "count": 0,
+    "files": [],
+    "time_taken": 69.3297827243805,
+    "message": "Downloaded 0 of 2 requested pages"
+  },
+  "ocr": {},
+  "segmentation": {},
+  "article_extraction": {},
+  "overall": {
+    "success": false,
+    "message": "Download failed, aborting test",
+    "start_time": "2025-05-07T14:10:38.300727",
+    "end_time": "2025-05-07T14:11:47.630510"
+  }
+}

@@ -1,0 +1,14 @@
+2025-05-07 16:05:00,779 - __main__ - INFO - Starting bulk download for sn83030214 (1920-06)
+2025-05-07 16:05:00,779 - __main__ - INFO - Output directory: ./test_downloads_1\sn83030214_1920_06
+2025-05-07 16:05:00,779 - __main__ - INFO - Content types: ['image_jpeg', 'ocr_txt']
+2025-05-07 16:05:00,780 - __main__ - INFO - Searching for pages in sn83030214 from 1920-06-01 to 1920-07-01
+2025-05-07 16:05:00,780 - __main__ - INFO - Requesting page 1 of search results
+2025-05-07 16:05:02,673 - __main__ - INFO - Received 0 results (page 1/0)
+2025-05-07 16:05:02,674 - __main__ - ERROR - No pages found matching the criteria
+2025-05-07 16:09:36,201 - __main__ - INFO - Starting bulk download for sn83045604 (1892-04)
+2025-05-07 16:09:36,202 - __main__ - INFO - Output directory: ./test_downloads_pi\sn83045604_1892_04
+2025-05-07 16:09:36,202 - __main__ - INFO - Content types: ['image_jpeg', 'ocr_txt']
+2025-05-07 16:09:36,202 - __main__ - INFO - Searching for pages in sn83045604 from 1892-04-01 to 1892-05-01
+2025-05-07 16:09:36,202 - __main__ - INFO - Requesting page 1 of search results
+2025-05-07 16:09:38,669 - __main__ - INFO - Received 0 results (page 1/0)
+2025-05-07 16:09:38,670 - __main__ - ERROR - No pages found matching the criteria

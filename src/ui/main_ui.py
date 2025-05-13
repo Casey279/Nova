@@ -2,7 +2,11 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ensure the src directory is in the path
+src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
+print(f"Python path: {sys.path}")
 
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTabWidget, QLabel, QSplitter, QPushButton, QTextEdit, 
                              QMessageBox)
@@ -17,6 +21,7 @@ from sources_tab import SourcesTab  # Import SourcesTab class
 from brainstorming_tab import BrainstormingTab
 from start_tab import StartTab
 from ui.research_import_tab import ResearchImportTab
+# RepositoryTab import removed
 
 
 class MainWindow(QWidget):
@@ -57,10 +62,10 @@ class MainWindow(QWidget):
         self.research_import_tab = ResearchImportTab(self.db_path)
         self.tab_widget.addTab(self.research_import_tab, "Research Import")
 
-        # Preprocessing Tabs
-        self.preprocessing_tabs = QWidget()
-        self.tab_widget.addTab(self.preprocessing_tabs, "Preprocessing")
-        self.create_preprocessing_tabs()
+        # processing Tabs
+        self.processing_tabs = QWidget()
+        self.tab_widget.addTab(self.processing_tabs, "Processing")
+        self.create_processing_tabs()
 
         # Main Tabs
         self.main_tabs = QWidget()
@@ -125,19 +130,21 @@ class MainWindow(QWidget):
             self.research_import_tab.set_project_info(project_folder)
         # Add other tabs that need project info here        
 
-    def create_preprocessing_tabs(self):
+    def create_processing_tabs(self):
         layout = QVBoxLayout()
-        preprocessing_sub_tabs = QTabWidget()
+        processing_sub_tabs = QTabWidget()
 
-        # Add tabs for preprocessing
+        # Add tabs for processing
         self.article_processor_tab = ArticleProcessor(self.db_path)
-        preprocessing_sub_tabs.addTab(self.article_processor_tab, "Article Processor")
+        processing_sub_tabs.addTab(self.article_processor_tab, "Article Processor")
 
         sources_tab = SourcesTab(self.db_path)
-        preprocessing_sub_tabs.addTab(sources_tab, "Sources")
+        processing_sub_tabs.addTab(sources_tab, "Sources")
+        
+        # Repository tab has been removed to address UI sizing issues
 
-        layout.addWidget(preprocessing_sub_tabs)
-        self.preprocessing_tabs.setLayout(layout)
+        layout.addWidget(processing_sub_tabs)
+        self.processing_tabs.setLayout(layout)
 
     # Update the create_main_tabs method to include connecting signals:
 
@@ -227,13 +234,13 @@ class MainWindow(QWidget):
             if response != QMessageBox.Yes:
                 return
         
-        # Switch to the preprocessing tab widget
-        self.tab_widget.setCurrentWidget(self.preprocessing_tabs)
+        # Switch to the processing tab widget
+        self.tab_widget.setCurrentWidget(self.processing_tabs)
         
-        # Now switch to the Article Processor tab within preprocessing
-        preprocessing_sub_tabs = self.preprocessing_tabs.findChild(QTabWidget)
-        if preprocessing_sub_tabs:
-            preprocessing_sub_tabs.setCurrentWidget(self.article_processor_tab)
+        # Now switch to the Article Processor tab within processing
+        processing_sub_tabs = self.processing_tabs.findChild(QTabWidget)
+        if processing_sub_tabs:
+            processing_sub_tabs.setCurrentWidget(self.article_processor_tab)
         
         # Load the event for editing
         self.article_processor_tab.load_event_for_editing(event_id)
@@ -254,10 +261,10 @@ class MainWindow(QWidget):
             )
             if msg == QMessageBox.Yes:
                 # Switch back to the Article Processor tab
-                self.tab_widget.setCurrentWidget(self.preprocessing_tabs)
-                preprocessing_sub_tabs = self.preprocessing_tabs.findChild(QTabWidget)
-                if preprocessing_sub_tabs:
-                    preprocessing_sub_tabs.setCurrentWidget(self.article_processor_tab)
+                self.tab_widget.setCurrentWidget(self.processing_tabs)
+                processing_sub_tabs = self.processing_tabs.findChild(QTabWidget)
+                if processing_sub_tabs:
+                    processing_sub_tabs.setCurrentWidget(self.article_processor_tab)
                 return
         
         # Check for unsaved changes in current tab

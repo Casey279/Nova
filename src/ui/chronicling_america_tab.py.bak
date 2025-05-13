@@ -1,0 +1,1859 @@
+# File: chronicling_america_tab_improved.py
+# Improved version of the Chronicling America tab with better UI and functionality
+
+import sys
+import os
+import re
+import json
+import requests
+import logging
+from datetime import datetime
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+# Import the geographic map widget
+from ui.components.geography_map import GeographicMapWidget
+
+# Import the bulk OCR tab components (import main class first to avoid circular imports)
+from ui.chronicling_america_bulk_ocr import ChroniclingAmericaBulkOCRTab
+# We need to import this after ChroniclingAmericaBulkOCRTab to avoid circular imports
+from ui.chronicling_america_bulk_ocr import BulkProcessingMonitor
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+                            QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                            QMessageBox, QProgressBar, QGroupBox, QComboBox,
+                            QDateEdit, QCheckBox, QTextEdit, QGridLayout, QSplitter,
+                            QSpinBox, QFormLayout, QSizePolicy, QApplication, QTabWidget)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QDate
+
+from services import ImportService
+
+try:
+    # Try to import the improved client first
+    # Force absolute imports by using the full module path
+    import importlib.util
+    import os
+    import sys
+
+    # Add this debug info to help troubleshoot
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    src_dir = os.path.dirname(current_dir)
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
+
+    # Now try the imports
+    try:
+        from api.chronicling_america_improved import ImprovedChroniclingAmericaClient as ChroniclingAmericaClient
+        API_AVAILABLE = True
+        USING_IMPROVED_CLIENT = True
+        print(f"Successfully imported ImprovedChroniclingAmericaClient")
+    except ImportError as e:
+        print(f"Failed to import improved client: {e}")
+        # Fall back to the original client if improved version is not available
+        try:
+            from api.chronicling_america import ChroniclingAmericaClient
+            API_AVAILABLE = True
+            USING_IMPROVED_CLIENT = False
+            print(f"Successfully imported ChroniclingAmericaClient")
+        except ImportError as e:
+            print(f"Failed to import original client: {e}")
+            API_AVAILABLE = False
+            USING_IMPROVED_CLIENT = False
+except Exception as e:
+    print(f"Unexpected error during import: {e}")
+    API_AVAILABLE = False
+    USING_IMPROVED_CLIENT = False
+
+
+class SearchWorker(QThread):
+    """Worker thread for searching ChroniclingAmerica."""
+
+    progress_signal = pyqtSignal(int, int)  # current, total (for download phase)
+    search_results_signal = pyqtSignal(list, dict, dict)  # results, pagination, extra_info
+    finished_signal = pyqtSignal(dict)  # results from download/import
+    error_signal = pyqtSignal(str)  # error message
+    gap_signal = pyqtSignal(dict)  # Information about detected gaps
+
+    def __init__(self, search_params, download_dir, max_pages=1,
+                download_formats=None, import_service=None,
+                detect_gaps=False, gap_threshold=5):
+        """
+        Initialize the search worker.
+
+        Args:
+            search_params: Parameters for the search
+            download_dir: Directory to save downloads
+            max_pages: Maximum number of search result pages
+            download_formats: Formats to download
+            import_service: ImportService instance for importing results
+            detect_gaps: Whether to detect gaps in newspaper content
+            gap_threshold: Number of consecutive days without content to trigger gap detection
+        """
+        super().__init__()
+        self.search_params = search_params
+        self.download_dir = download_dir
+        self.max_pages = max_pages
+        self.download_formats = download_formats or ['pdf', 'ocr']
+        self.import_service = import_service
+        self.download_results = []
+        self.search_only = self.import_service is None
+        self.detect_gaps = detect_gaps
+        self.gap_threshold = gap_threshold
+
+    def run(self):
+        """Run the search and download process."""
+        try:
+            if not API_AVAILABLE:
+                self.error_signal.emit("ChroniclingAmerica API is not available")
+                return
+
+            # Create API client
+            client = ChroniclingAmericaClient(output_directory=self.download_dir)
+
+            # Extra info to pass back to the UI
+            extra_info = {}
+
+            # If using improved client and LCCN is provided, get earliest issue date
+            lccn = self.search_params.get('lccn')
+            if USING_IMPROVED_CLIENT and lccn:
+                # Try to get the title, earliest and latest issue dates
+                from api.chronicling_america_earliest_dates import get_earliest_date, get_latest_date, get_newspaper_title
+
+                # Get title if available
+                title = get_newspaper_title(lccn)
+                if title:
+                    extra_info['newspaper_title'] = title
+
+                # Get earliest issue date - first from module, then from client
+                earliest_date = get_earliest_date(lccn)
+                if not earliest_date and hasattr(client, 'get_earliest_issue_date'):
+                    # Try to get it directly from the client
+                    earliest_date = client.get_earliest_issue_date(lccn)
+
+                if earliest_date:
+                    # Store the earliest date in extra_info
+                    extra_info['earliest_issue_date'] = earliest_date.isoformat()
+
+                    # If we have a start date that's earlier than the earliest issue,
+                    # note this so the UI can show a message AND adjust the search parameters
+                    date_start = self.search_params.get('date_start')
+                    if date_start:
+                        try:
+                            from datetime import datetime
+                            start_date = datetime.strptime(date_start, "%Y-%m-%d").date()
+                            if start_date < earliest_date:
+                                # Store for UI display
+                                extra_info['adjusted_start_date'] = earliest_date.isoformat()
+
+                                # IMPORTANT: Actually modify the search parameters to use the earliest issue date
+                                # This ensures the client won't search before the first available issue
+                                earliest_date_str = earliest_date.strftime("%Y-%m-%d")
+                                self.search_params['date_start'] = earliest_date_str
+                                logger.info(f"Adjusted search start date from {date_start} to {earliest_date_str} (first issue)")
+                        except (ValueError, TypeError):
+                            pass
+
+                # Get latest issue date - first from module, then from client
+                latest_date = get_latest_date(lccn)
+                if not latest_date and hasattr(client, 'get_latest_issue_date'):
+                    # Try to get it directly from the client
+                    latest_date = client.get_latest_issue_date(lccn)
+
+                if latest_date:
+                    # Store the latest date in extra_info
+                    extra_info['latest_issue_date'] = latest_date.isoformat()
+
+                    # If we have an end date that's later than the latest issue,
+                    # note this so the UI can show a message AND adjust the search parameters
+                    date_end = self.search_params.get('date_end')
+                    if date_end:
+                        try:
+                            from datetime import datetime
+                            end_date = datetime.strptime(date_end, "%Y-%m-%d").date()
+                            if end_date > latest_date:
+                                # Store for UI display
+                                extra_info['adjusted_end_date'] = latest_date.isoformat()
+
+                                # IMPORTANT: Actually modify the search parameters to use the latest issue date
+                                # This ensures the client won't search beyond the last available issue
+                                latest_date_str = latest_date.strftime("%Y-%m-%d")
+                                self.search_params['date_end'] = latest_date_str
+                                logger.info(f"Adjusted search end date from {date_end} to {latest_date_str} (last issue)")
+                        except (ValueError, TypeError):
+                            pass
+
+            if self.search_only:
+                # Search only
+                pages, pagination = client.search_pages(
+                    keywords=self.search_params.get('keywords'),
+                    lccn=self.search_params.get('lccn'),
+                    state=self.search_params.get('state'),
+                    date_start=self.search_params.get('date_start'),
+                    date_end=self.search_params.get('date_end'),
+                    page=1,  # Start with first page
+                    max_pages=self.max_pages,  # Use the max_pages parameter
+                    detect_gaps=self.detect_gaps,  # Enable gap detection if requested
+                    gap_threshold=self.gap_threshold  # Use specified gap threshold
+                )
+
+                # If gap detection is enabled, check for gap information in the results
+                if self.detect_gaps and 'search_info' in pagination:
+                    search_info = pagination.get('search_info', {})
+
+                    # Add search info to extra_info for UI display
+                    extra_info['search_info'] = search_info
+
+                    # If gaps were detected, emit the gap signal
+                    if search_info.get('gaps'):
+                        self.gap_signal.emit({
+                            'gaps': search_info.get('gaps', []),
+                            'has_more_content': search_info.get('has_more_content', True),
+                            'chronicling_america_url': search_info.get('chronicling_america_url', '')
+                        })
+
+                # Send results to UI with extra info
+                self.search_results_signal.emit(pages, pagination, extra_info)
+
+            else:
+                # Search and download
+                results = self.import_service.import_from_chronicling_america(
+                    search_params=self.search_params,
+                    download_dir=self.download_dir,
+                    max_pages=self.max_pages,
+                    formats=self.download_formats
+                )
+
+                # Add extra info to results
+                results['extra_info'] = extra_info
+
+                # Report finished
+                self.finished_signal.emit(results)
+
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
+class ChroniclingAmericaTab(QWidget):
+    """
+    Improved tab for searching and importing content from the ChroniclingAmerica API.
+    Includes search, download, and bulk OCR processing functionality.
+    """
+
+    def __init__(self, db_path, parent=None):
+        """
+        Initialize the ChroniclingAmerica search tab.
+
+        Args:
+            db_path (str): Path to the database
+            parent (QWidget, optional): Parent widget
+        """
+        super().__init__(parent)
+        self.db_path = db_path
+
+        # Store API availability first, before any UI is created
+        # This needs to be set before setup_ui is called
+        self.api_available = API_AVAILABLE
+
+        # Set size policy to prevent excessive vertical expansion
+        size_policy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        size_policy.setVerticalStretch(0)  # Don't stretch vertically
+        size_policy.setHorizontalStretch(1)  # Allow horizontal stretching
+        self.setSizePolicy(size_policy)
+
+        # Set maximum height to prevent excessive vertical expansion
+        screen = QApplication.primaryScreen().geometry()
+        self.setMaximumHeight(int(screen.height() * 0.8))  # 80% of screen height maximum
+
+        # Create services
+        self.import_service = ImportService(db_path)
+
+        # Set default values for downloads directory
+        self.download_directory = os.path.join(os.path.dirname(db_path), "downloads", "chroniclingamerica")
+        os.makedirs(self.download_directory, exist_ok=True)
+
+        # Initialize UI (after all attributes are set)
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Set up the UI components with a tabbed interface."""
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setDocumentMode(True)  # More compact look
+
+        # Create search tab (main tab)
+        self.search_tab = QWidget()
+        self.setup_search_tab()
+        self.tab_widget.addTab(self.search_tab, "Search & Download")
+
+        # Create bulk OCR tab
+        self.bulk_ocr_tab = ChroniclingAmericaBulkOCRTab(self, self.db_path)
+        self.tab_widget.addTab(self.bulk_ocr_tab, "Bulk OCR Processing")
+
+        # Connect tab change signals
+        self.tab_widget.currentChanged.connect(self.on_tab_changed)
+
+        # Add tab widget to main layout
+        main_layout.addWidget(self.tab_widget)
+
+        # Store current page number and search parameters
+        self.current_page = 1
+        self.search_results = []
+        self.pagination_info = {}
+        self.current_search_params = {}
+
+        # Store the newspaper data by state
+        self.newspapers_by_state = {}
+
+    def setup_search_tab(self):
+        """Set up the search tab with a three-panel horizontal layout."""
+        # Search tab layout is horizontal
+        search_layout = QHBoxLayout(self.search_tab)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create a horizontal splitter for the three panels
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setHandleWidth(8)  # Wider handles are easier to grab
+        self.splitter.setChildrenCollapsible(False)  # Prevent panels from being collapsed
+        self.splitter.setOpaqueResize(True)  # Show real-time resizing
+
+        # Create the three panels
+        self.left_panel = self.create_left_panel()      # Search parameters
+        self.middle_panel = self.create_middle_panel()  # Results and preview
+        self.right_panel = self.create_right_panel()    # Download and import
+
+        # Set fixed heights for the panels to prevent excessive vertical growth
+        screen = QApplication.primaryScreen().geometry()
+        max_panel_height = int(screen.height() * 0.7)  # 70% of screen height
+
+        # Set size policies for the panels
+        for panel in [self.left_panel, self.middle_panel, self.right_panel]:
+            panel.setMaximumHeight(max_panel_height)
+            panel_policy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+            panel.setSizePolicy(panel_policy)
+
+        # Add panels to the splitter
+        self.splitter.addWidget(self.left_panel)
+        self.splitter.addWidget(self.middle_panel)
+        self.splitter.addWidget(self.right_panel)
+
+        # Set initial sizes (40% left, 40% middle, 20% right) as requested
+        total_width = self.width() or 1200  # Default width if not available
+        self.splitter.setSizes([int(total_width * 0.4), int(total_width * 0.4), int(total_width * 0.2)])
+
+        # Add splitter to search layout with some vertical spacing
+        search_layout.addWidget(self.splitter)
+        search_layout.setContentsMargins(0, 10, 0, 10)  # Add some vertical margins
+
+        # Disable search tab if API is not available
+        # Get API availability from either the instance attribute or the global variable
+        api_available = getattr(self, 'api_available', API_AVAILABLE)
+        self.search_tab.setEnabled(api_available)
+
+    def create_left_panel(self):
+        """Create the left panel with search parameters."""
+        # Create a wrapper widget
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Add the geographic US map at the top of the left panel
+        self.us_map = GeographicMapWidget()
+        self.us_map.state_selected.connect(self.on_map_state_selected)
+        # Create a wrapper to constrain the map's size
+        map_container = QWidget()
+        map_container_layout = QVBoxLayout(map_container)
+        map_container_layout.setContentsMargins(0, 0, 0, 0)
+        map_container_layout.addWidget(self.us_map, 0, Qt.AlignCenter)  # Center the map
+
+        # Add a label above the map
+        map_header = QLabel("Select a State:")
+        map_header.setAlignment(Qt.AlignCenter)
+        map_header.setStyleSheet("font-weight: bold;")
+        left_layout.addWidget(map_header)
+
+        left_layout.addWidget(map_container)
+
+        # Search parameters group
+        search_group = QGroupBox("Search Parameters")
+        search_layout = QFormLayout()
+
+        # State selection
+        self.state_combo = QComboBox()
+        self.state_combo.addItem("All", "")  # All states option at the top
+
+        # Add state abbreviations in alphabetical order
+        state_abbrevs = [
+            ("AL", "Alabama"), ("AK", "Alaska"), ("AZ", "Arizona"), ("AR", "Arkansas"),
+            ("CA", "California"), ("CO", "Colorado"), ("CT", "Connecticut"), ("DE", "Delaware"),
+            ("DC", "District of Columbia"), ("FL", "Florida"), ("GA", "Georgia"), ("HI", "Hawaii"),
+            ("ID", "Idaho"), ("IL", "Illinois"), ("IN", "Indiana"), ("IA", "Iowa"),
+            ("KS", "Kansas"), ("KY", "Kentucky"), ("LA", "Louisiana"), ("ME", "Maine"),
+            ("MD", "Maryland"), ("MA", "Massachusetts"), ("MI", "Michigan"), ("MN", "Minnesota"),
+            ("MS", "Mississippi"), ("MO", "Missouri"), ("MT", "Montana"), ("NE", "Nebraska"),
+            ("NV", "Nevada"), ("NH", "New Hampshire"), ("NJ", "New Jersey"), ("NM", "New Mexico"),
+            ("NY", "New York"), ("NC", "North Carolina"), ("ND", "North Dakota"), ("OH", "Ohio"),
+            ("OK", "Oklahoma"), ("OR", "Oregon"), ("PA", "Pennsylvania"), ("PR", "Puerto Rico"),
+            ("RI", "Rhode Island"), ("SC", "South Carolina"), ("SD", "South Dakota"),
+            ("TN", "Tennessee"), ("TX", "Texas"), ("UT", "Utah"), ("VT", "Vermont"),
+            ("VI", "Virgin Islands"), ("VA", "Virginia"), ("WA", "Washington"),
+            ("WV", "West Virginia"), ("WI", "Wisconsin"), ("WY", "Wyoming")
+        ]
+
+        # Add states to the combo box
+        for abbrev, name in sorted(state_abbrevs, key=lambda x: x[1]):  # Sort by state name
+            self.state_combo.addItem(name, abbrev)
+
+        # Enable keyboard navigation
+        self.state_combo.setEditable(True)
+        self.state_combo.setInsertPolicy(QComboBox.NoInsert)  # Don't allow inserting new items
+
+        # Connect state selection change event
+        self.state_combo.currentIndexChanged.connect(self.on_state_changed)
+
+        search_layout.addRow("Select State:", self.state_combo)
+
+        # Newspaper selection - dynamically populated based on state
+        self.newspaper_combo = QComboBox()
+        self.newspaper_combo.addItem("Select Title", "")
+        search_layout.addRow("Newspaper:", self.newspaper_combo)
+
+        # Custom LCCN checkbox and field
+        custom_lccn_layout = QHBoxLayout()
+
+        # Checkbox for enabling custom LCCN input
+        self.custom_lccn_check = QCheckBox()
+        self.custom_lccn_check.setChecked(False)
+        self.custom_lccn_check.stateChanged.connect(self.on_custom_lccn_toggled)
+
+        # Custom LCCN input field
+        self.lccn_edit = QLineEdit()
+        self.lccn_edit.setEnabled(False)
+        self.lccn_edit.setPlaceholderText("Enter LCCN (e.g., sn83045604)")
+
+        # Search button for LCCN
+        self.lccn_search_button = QPushButton("Search")
+        self.lccn_search_button.setEnabled(False)
+        self.lccn_search_button.clicked.connect(self.on_lccn_search)
+
+        custom_lccn_layout.addWidget(self.lccn_edit)
+        custom_lccn_layout.addWidget(self.lccn_search_button)
+
+        search_layout.addRow("Custom LCCN:", self.custom_lccn_check)
+        search_layout.addRow("", custom_lccn_layout)
+
+        # Date range
+        date_layout = QHBoxLayout()
+
+        self.date_start_edit = QDateEdit()
+        self.date_start_edit.setDisplayFormat("yyyy-MM-dd")
+        self.date_start_edit.setCalendarPopup(True)
+        self.date_start_edit.setDate(QDate(1800, 1, 1))
+
+        self.date_end_edit = QDateEdit()
+        self.date_end_edit.setDisplayFormat("yyyy-MM-dd")
+        self.date_end_edit.setCalendarPopup(True)
+        self.date_end_edit.setDate(QDate.currentDate())
+
+        date_layout.addWidget(QLabel("From:"))
+        date_layout.addWidget(self.date_start_edit)
+        date_layout.addWidget(QLabel("To:"))
+        date_layout.addWidget(self.date_end_edit)
+
+        search_layout.addRow("Date Range:", date_layout)
+
+        # Keywords
+        self.keywords_edit = QLineEdit()
+        search_layout.addRow("Keywords:", self.keywords_edit)
+
+        # Search button
+        search_button_layout = QHBoxLayout()
+        self.search_button = QPushButton("Search")
+        self.search_button.clicked.connect(self.search)
+        search_button_layout.addStretch()
+        search_button_layout.addWidget(self.search_button)
+
+        search_layout.addRow("", search_button_layout)
+
+        search_group.setLayout(search_layout)
+        left_layout.addWidget(search_group)
+
+        # Status label
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        left_layout.addWidget(self.status_label)
+
+        # Set status message if API is not available
+        # Get API availability from either the instance attribute or the global variable
+        api_available = getattr(self, 'api_available', API_AVAILABLE)
+        if not api_available:
+            self.status_label.setText("ChroniclingAmerica API is not available. Make sure the api module is installed correctly.")
+
+        return left_widget
+
+    def create_middle_panel(self):
+        """Create the middle panel with search results and preview."""
+        # Create a wrapper widget
+        middle_widget = QWidget()
+        middle_layout = QVBoxLayout(middle_widget)
+        middle_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Results group
+        results_group = QGroupBox("Search Results")
+        results_layout = QVBoxLayout()
+
+        # Results list
+        self.results_list = QListWidget()
+        # Enable the download selected button when selection changes
+        self.results_list.itemSelectionChanged.connect(self.on_results_selection_changed)
+        results_layout.addWidget(self.results_list)
+
+        # Pagination controls
+        pagination_layout = QHBoxLayout()
+
+        self.page_label = QLabel("Page 1 of 1")
+        self.prev_button = QPushButton("Previous Page")
+        self.prev_button.clicked.connect(self.previous_page)
+        self.prev_button.setEnabled(False)
+
+        self.next_button = QPushButton("Next Page")
+        self.next_button.clicked.connect(self.next_page)
+        self.next_button.setEnabled(False)
+
+        pagination_layout.addWidget(self.prev_button)
+        pagination_layout.addWidget(self.page_label)
+        pagination_layout.addWidget(self.next_button)
+
+        results_layout.addLayout(pagination_layout)
+
+        results_group.setLayout(results_layout)
+        middle_layout.addWidget(results_group)
+
+        # Progress bar at the bottom of the middle panel
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        middle_layout.addWidget(self.progress_bar)
+
+        return middle_widget
+
+    def create_right_panel(self):
+        """Create the right panel with download and import controls."""
+        # Create a wrapper widget
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Download group
+        download_group = QGroupBox("Download and Import")
+        download_layout = QGridLayout()
+
+        # Download options
+        self.download_pdf_check = QCheckBox("PDF")
+        self.download_pdf_check.setChecked(False)
+
+        self.download_jp2_check = QCheckBox("JP2 (high-res image)")
+        self.download_jp2_check.setChecked(True)
+
+        self.download_ocr_check = QCheckBox("OCR Text")
+        self.download_ocr_check.setChecked(False)
+
+        self.download_json_check = QCheckBox("JSON Metadata")
+        self.download_json_check.setChecked(False)
+
+        download_layout.addWidget(QLabel("Download Formats:"), 0, 0)
+        download_layout.addWidget(self.download_pdf_check, 0, 1)
+        download_layout.addWidget(self.download_jp2_check, 0, 2)
+        download_layout.addWidget(self.download_ocr_check, 1, 1)
+        download_layout.addWidget(self.download_json_check, 1, 2)
+
+        # Info about result pages (fixed to 100 max)
+        max_pages_layout = QHBoxLayout()
+        info_label = QLabel("Note: Downloads are limited to approximately 2000 newspaper pages per operation.")
+        info_label.setWordWrap(True)
+        max_pages_layout.addWidget(info_label)
+
+        download_layout.addLayout(max_pages_layout, 2, 0, 1, 3)
+
+        # Import options
+        self.import_check = QCheckBox("Import to Database")
+        self.import_check.setChecked(True)
+        download_layout.addWidget(self.import_check, 3, 0, 1, 3)
+
+        # Download button
+        download_button_layout = QHBoxLayout()
+        self.download_selected_button = QPushButton("Download Selected")
+        self.download_selected_button.clicked.connect(lambda: self.download(selected_only=True))
+        self.download_selected_button.setEnabled(False)
+
+        self.download_all_button = QPushButton("Download All Results")
+        self.download_all_button.clicked.connect(lambda: self.download(selected_only=False))
+        self.download_all_button.setEnabled(False)
+
+        self.ocr_button = QPushButton("Bulk OCR")
+        self.ocr_button.clicked.connect(self.open_bulk_ocr)
+        self.ocr_button.setToolTip("Open Bulk OCR Processing tab")
+
+        download_button_layout.addWidget(self.download_selected_button)
+        download_button_layout.addWidget(self.download_all_button)
+        download_button_layout.addWidget(self.ocr_button)
+
+        download_layout.addLayout(download_button_layout, 4, 0, 1, 3)
+
+        # Gap detection options
+        gap_detection_group = QGroupBox("Gap Detection")
+        gap_layout = QVBoxLayout()
+
+        # Enable gap detection checkbox
+        self.detect_gaps_check = QCheckBox("Detect content gaps")
+        self.detect_gaps_check.setChecked(False)
+        self.detect_gaps_check.setToolTip("Detect gaps in newspaper content availability")
+        gap_layout.addWidget(self.detect_gaps_check)
+
+        # Gap threshold slider
+        threshold_layout = QHBoxLayout()
+        threshold_layout.addWidget(QLabel("Threshold:"))
+        self.gap_threshold_spin = QSpinBox()
+        self.gap_threshold_spin.setRange(1, 30)
+        self.gap_threshold_spin.setValue(5)
+        self.gap_threshold_spin.setToolTip("Number of consecutive days without content to trigger gap detection")
+        self.gap_threshold_spin.setEnabled(False)
+        threshold_layout.addWidget(self.gap_threshold_spin)
+        threshold_layout.addWidget(QLabel("days"))
+        gap_layout.addLayout(threshold_layout)
+
+        # Connect gap detection checkbox to enable/disable controls
+        self.detect_gaps_check.stateChanged.connect(self.on_gap_detection_changed)
+
+        gap_detection_group.setLayout(gap_layout)
+        download_layout.addWidget(gap_detection_group, 5, 0, 1, 3)
+
+        download_group.setLayout(download_layout)
+        right_layout.addWidget(download_group)
+
+        return right_widget
+
+    def on_gap_detection_changed(self, state):
+        """Handle changes to the gap detection checkbox."""
+        is_checked = state == Qt.Checked
+        self.gap_threshold_spin.setEnabled(is_checked)
+
+    def on_gaps_detected(self, gap_info):
+        """
+        Handle gaps detected during search.
+
+        Args:
+            gap_info: Dictionary with gap information
+        """
+        # Extract gap information
+        gaps = gap_info.get('gaps', [])
+        has_more_content = gap_info.get('has_more_content', True)
+        chronicling_america_url = gap_info.get('chronicling_america_url', '')
+
+        if not gaps and has_more_content:
+            # No significant gaps detected
+            return
+
+        # Construct message based on gap information
+        message = "Gap Detection Results:\n\n"
+
+        if not has_more_content:
+            message += "❗ No more content available beyond the dates searched.\n\n"
+
+        if gaps:
+            message += "Detected gaps in newspaper content:\n"
+            for gap in gaps:
+                if gap.get('type') == 'consecutive_empty':
+                    threshold = gap.get('threshold', 5)
+                    next_content = gap.get('next_content')
+                    if next_content:
+                        next_date = datetime.fromisoformat(next_content).strftime("%B %d, %Y")
+                        message += f"• Found {threshold}+ consecutive days without content.\n"
+                        message += f"  Next content available on {next_date}\n"
+                    else:
+                        message += f"• Found {threshold}+ consecutive days without content.\n"
+                        message += "  No more content found afterward.\n"
+
+        # Add link to Chronicling America website for visual confirmation
+        if chronicling_america_url:
+            message += "\nYou can verify this on the Chronicling America website:\n"
+            message += chronicling_america_url
+
+        # Show a dialog with the gap information
+        QMessageBox.information(
+            self,
+            "Gap Detection Results",
+            message
+        )
+    
+    def search(self):
+        """Search for newspaper content."""
+        # Get search parameters
+        keywords = self.keywords_edit.text().strip()
+        date_start = self.date_start_edit.date().toString("yyyy-MM-dd")
+        date_end = self.date_end_edit.date().toString("yyyy-MM-dd")
+        
+        # Get state and LCCN based on UI mode
+        state = None
+        lccn = None
+        
+        # Check if we're in custom LCCN mode
+        if self.custom_lccn_check.isChecked():
+            # Use the custom LCCN
+            lccn = self.lccn_edit.text().strip()
+            # No state filter in this mode
+        else:
+            # Get state from dropdown
+            state_name = self.state_combo.currentText()
+            if state_name and state_name != "All":
+                state = state_name
+            
+            # Get LCCN from newspaper dropdown
+            selected_lccn = self.newspaper_combo.currentData()
+            if selected_lccn:
+                lccn = selected_lccn
+        
+        # Validate search parameters - at minimum we need a date range
+        if not date_start or not date_end:
+            QMessageBox.warning(
+                self,
+                "Date Range Required",
+                "Please provide a date range for your search. Optional filters include keywords, LCCN, or state."
+            )
+            return
+        
+        # Show what we're searching for
+        search_info = f"Searching for newspapers from {date_start} to {date_end}"
+        if lccn:
+            newspaper_title = ""
+            for i in range(self.newspaper_combo.count()):
+                if self.newspaper_combo.itemData(i) == lccn:
+                    newspaper_title = self.newspaper_combo.itemText(i).split(" (")[0]
+                    break
+            
+            if newspaper_title:
+                search_info += f" from {newspaper_title}"
+            else:
+                search_info += f" with LCCN {lccn}"
+        elif state:
+            search_info += f" from {state}"
+            
+        if keywords:
+            search_info += f" containing '{keywords}'"
+            
+        self.status_label.setText(search_info)
+        
+        # Store search parameters
+        self.current_search_params = {
+            'keywords': keywords,
+            'state': state,
+            'date_start': date_start,
+            'date_end': date_end,
+            'lccn': lccn
+        }
+        
+        # Reset current page
+        self.current_page = 1
+        
+        # Create worker for search
+        self.search_worker = SearchWorker(
+            search_params=self.current_search_params,
+            download_dir=self.download_directory,
+            max_pages=5,  # Use 5 pages by default for searching to get more results
+            # Don't pass import_service to indicate search-only mode
+            import_service=None,
+            # Use gap detection settings
+            detect_gaps=self.detect_gaps_check.isChecked(),
+            gap_threshold=self.gap_threshold_spin.value()
+        )
+        
+        # Connect signals
+        self.search_worker.search_results_signal.connect(self.search_results_received)
+        self.search_worker.error_signal.connect(self.search_error)
+        self.search_worker.gap_signal.connect(self.on_gaps_detected)
+        
+        # Update UI
+        self.status_label.setText("Searching...")
+        self.progress_bar.setRange(0, 0)  # Indeterminate progress
+        self.set_ui_enabled(False)
+        
+        # Clear previous results
+        self.results_list.clear()
+        
+        # Start search
+        self.search_worker.start()
+    
+    def search_results_received(self, pages, pagination, extra_info=None):
+        """
+        Handle search results.
+
+        Args:
+            pages: List of PageMetadata objects
+            pagination: Pagination information
+            extra_info: Additional information about the search (e.g. earliest and latest issue dates,
+                       adjusted date ranges, newspaper title)
+        """
+        # Store results
+        self.search_results = pages
+        self.pagination_info = pagination
+
+        # Update UI
+        self.results_list.clear()
+
+        if not pages:
+            self.status_label.setText("No results found.")
+            self.set_ui_enabled(True)
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
+            return
+
+        # Sort results by date and page number to ensure proper order
+        sorted_pages = sorted(pages, key=lambda p: (p.issue_date, p.sequence))
+
+        # Add results to list
+        for page in sorted_pages:
+            item_text = f"{page.title} - {page.issue_date} (Page {page.sequence})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, page)
+            self.results_list.addItem(item)
+
+        # Update pagination controls
+        total_pages = pagination.get('total_pages', 1)
+        self.page_label.setText(f"Page {self.current_page} of {total_pages}")
+        self.prev_button.setEnabled(self.current_page > 1)
+        self.next_button.setEnabled(self.current_page < total_pages)
+
+        # Update status with extra information
+        total_items = pagination.get('total_items', 0)
+        status_text = f"Found {total_items} results. Displaying page {self.current_page} of {total_pages}."
+
+        # Add earliest issue date info if available
+        if extra_info:
+            # If we have a newspaper title, show it
+            if 'newspaper_title' in extra_info:
+                newspaper_title = extra_info['newspaper_title']
+                # Truncate title if too long
+                if len(newspaper_title) > 30:
+                    newspaper_title = newspaper_title[:27] + "..."
+                status_text = f"{newspaper_title}: {status_text}"
+
+            # If the start date was adjusted based on earliest issue date, show that info
+            if 'adjusted_start_date' in extra_info and 'earliest_issue_date' in extra_info:
+                earliest_date = extra_info['earliest_issue_date']
+                try:
+                    # Convert ISO format date to a more readable format
+                    from datetime import datetime
+                    date_obj = datetime.fromisoformat(earliest_date)
+                    formatted_date = date_obj.strftime("%B %-d, %Y")  # e.g. "May 11, 1888"
+
+                    # Add note about using earliest issue date
+                    status_text += f" Note: Search adjusted to start from the first issue ({formatted_date})."
+                except (ValueError, TypeError):
+                    # If date conversion fails, just use the ISO format
+                    status_text += f" Note: Search adjusted to start from the first issue ({earliest_date})."
+
+            # If the end date was adjusted based on latest issue date, show that info
+            if 'adjusted_end_date' in extra_info and 'latest_issue_date' in extra_info:
+                latest_date = extra_info['latest_issue_date']
+                try:
+                    # Convert ISO format date to a more readable format
+                    from datetime import datetime
+                    date_obj = datetime.fromisoformat(latest_date)
+                    formatted_date = date_obj.strftime("%B %-d, %Y")  # e.g. "December 31, 1921"
+
+                    # Add note about using latest issue date
+                    status_text += f" Search adjusted to end with the last issue ({formatted_date})."
+                except (ValueError, TypeError):
+                    # If date conversion fails, just use the ISO format
+                    status_text += f" Search adjusted to end with the last issue ({latest_date})."
+
+        self.status_label.setText(status_text)
+
+        # Enable download buttons
+        self.download_selected_button.setEnabled(True)
+        self.download_all_button.setEnabled(True)
+
+        # Reset progress bar
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+
+        # Re-enable UI
+        self.set_ui_enabled(True)
+    
+    def search_error(self, error_message):
+        """
+        Handle search error.
+        
+        Args:
+            error_message: Error message
+        """
+        self.status_label.setText(f"Search failed: {error_message}")
+        
+        QMessageBox.critical(self, "Search Error", f"Search failed: {error_message}")
+        
+        # Reset progress bar
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        
+        # Re-enable UI
+        self.set_ui_enabled(True)
+    
+    def previous_page(self):
+        """Go to the previous page of search results."""
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.current_search_params['page'] = self.current_page
+            self.search()
+    
+    def next_page(self):
+        """Go to the next page of search results."""
+        total_pages = self.pagination_info.get('total_pages', 1)
+        if self.current_page < total_pages:
+            self.current_page += 1
+            self.current_search_params['page'] = self.current_page
+            self.search()
+    
+    def on_results_selection_changed(self):
+        """Enable or disable the download selected button based on selection."""
+        selected_items = self.results_list.selectedItems()
+        self.download_selected_button.setEnabled(len(selected_items) > 0)
+    
+    def download(self, selected_only=False):
+        """
+        Download and optionally import newspaper content.
+
+        Args:
+            selected_only: Whether to download only selected items
+        """
+        # Get formats to download
+        formats = []
+        if self.download_pdf_check.isChecked():
+            formats.append('pdf')
+        if self.download_jp2_check.isChecked():
+            formats.append('jp2')
+        if self.download_ocr_check.isChecked():
+            formats.append('ocr')
+        if self.download_json_check.isChecked():
+            formats.append('json')
+
+        if not formats:
+            QMessageBox.warning(
+                self,
+                "Download Format Required",
+                "Please select at least one format to download."
+            )
+            return
+
+        # Use fixed max pages value of 100 (approximately 2000 newspaper pages)
+        max_pages = 100
+
+        # Get pages to download
+        if selected_only:
+            selected_items = self.results_list.selectedItems()
+            if not selected_items:
+                return
+
+            # Get selected page metadata
+            pages = [item.data(Qt.UserRole) for item in selected_items]
+
+            # Create download params
+            search_params = {
+                'keywords': None,
+                'state': None,
+                'date_start': None,
+                'date_end': None,
+                'lccn': None,
+                'specific_pages': pages
+            }
+
+        else:
+            # Use current search parameters for downloading all results
+            search_params = self.current_search_params
+
+            # For full searches, check if the date range might exceed our capacity
+            date_start = search_params.get('date_start')
+            date_end = search_params.get('date_end')
+            lccn = search_params.get('lccn')
+
+            if date_start and date_end:
+                # Estimate the number of newspaper pages
+                estimated_pages, estimated_result_pages, is_large_download = self.estimate_newspaper_pages(
+                    date_start, date_end, lccn
+                )
+
+                # If this is a large download (over 2000 newspaper pages), warn the user
+                if is_large_download:
+                    download_limit = 20 * max_pages  # ~2000 newspaper pages
+
+                    reply = QMessageBox.question(
+                        self,
+                        "Large Download Warning",
+                        f"Your date range ({date_start} to {date_end}) may contain approximately {estimated_pages} newspaper pages, "
+                        f"which exceeds the download limit of {download_limit} pages per operation.\n\n"
+                        f"Only the first {download_limit} pages will be downloaded in this operation.\n\n"
+                        f"Would you like to continue with a partial download?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+
+                    if reply != QMessageBox.Yes:
+                        return
+
+        # Determine if we should import
+        import_to_db = self.import_check.isChecked()
+
+        # Create worker for download/import
+        self.download_worker = SearchWorker(
+            search_params=search_params,
+            download_dir=self.download_directory,
+            max_pages=max_pages,
+            download_formats=formats,
+            import_service=self.import_service if import_to_db else None
+        )
+
+        # Connect signals
+        self.download_worker.progress_signal.connect(self.update_download_progress)
+        self.download_worker.finished_signal.connect(self.download_completed)
+        self.download_worker.error_signal.connect(self.download_error)
+
+        # Update UI
+        if selected_only:
+            self.status_label.setText(f"Downloading {len(pages)} selected newspaper pages...")
+        else:
+            total_items = self.pagination_info.get('total_items', 0)
+            date_start = search_params.get('date_start')
+            date_end = search_params.get('date_end')
+
+            if date_start and date_end and total_items == 0:
+                # If we have a date range but no pagination info yet, use our estimate
+                estimated_pages, _, _ = self.estimate_newspaper_pages(date_start, date_end, search_params.get('lccn'))
+                self.status_label.setText(f"Downloading up to 2000 newspaper pages (estimated total: {estimated_pages})...")
+            else:
+                # If we have pagination info, use that
+                page_items = min(20, total_items)  # Typically 20 items per page
+                self.status_label.setText(f"Downloading up to {page_items * max_pages} newspaper pages...")
+
+        self.progress_bar.setValue(0)
+        self.set_ui_enabled(False)
+
+        # Start download
+        self.download_worker.start()
+            selected_only: Whether to download only selected items
+        """
+        # Get formats to download
+        formats = []
+        if self.download_pdf_check.isChecked():
+            formats.append('pdf')
+        if self.download_jp2_check.isChecked():
+            formats.append('jp2')
+        if self.download_ocr_check.isChecked():
+            formats.append('ocr')
+        if self.download_json_check.isChecked():
+            formats.append('json')
+        
+        if not formats:
+            QMessageBox.warning(
+                self,
+                "Download Format Required",
+                "Please select at least one format to download."
+            )
+            return
+        
+        # Get pages to download
+        if selected_only:
+            selected_items = self.results_list.selectedItems()
+            if not selected_items:
+                return
+                
+            # Get selected page metadata
+            pages = [item.data(Qt.UserRole) for item in selected_items]
+            
+            # Create download params
+            search_params = {
+                'keywords': None,
+                'state': None,
+                'date_start': None,
+                'date_end': None,
+                'lccn': None,
+                'specific_pages': pages
+            }
+            
+        else:
+            # Use current search parameters for downloading all results
+            search_params = self.current_search_params
+        
+        # Use fixed max pages value of 100 (approximately 2000 newspaper pages)
+        max_pages = 100
+
+        # Determine if we should import
+        import_to_db = self.import_check.isChecked()
+        
+        # Create worker for download/import
+        self.download_worker = SearchWorker(
+            search_params=search_params,
+            download_dir=self.download_directory,
+            max_pages=max_pages,
+            download_formats=formats,
+            import_service=self.import_service if import_to_db else None
+        )
+        
+        # Connect signals
+        self.download_worker.progress_signal.connect(self.update_download_progress)
+        self.download_worker.finished_signal.connect(self.download_completed)
+        self.download_worker.error_signal.connect(self.download_error)
+        
+        # Update UI
+        if selected_only:
+            self.status_label.setText(f"Downloading {len(pages)} selected items...")
+        else:
+            total_items = self.pagination_info.get('total_items', 0)
+            page_items = min(20, total_items)  # Typically 20 items per page
+            self.status_label.setText(f"Downloading up to {page_items * max_pages} items...")
+        
+        self.progress_bar.setValue(0)
+        self.set_ui_enabled(False)
+        
+        # Start download
+        self.download_worker.start()
+    
+    def update_download_progress(self, current, total):
+        """
+        Update progress bar for download.
+
+        Args:
+            current: Current progress
+            total: Total items
+        """
+        percent = (current / total) * 100
+        self.progress_bar.setValue(int(percent))
+        self.status_label.setText(f"Downloading item {current} of {total}...")
+
+    def estimate_newspaper_pages(self, date_start, date_end, lccn=None):
+        """
+        Estimate the number of newspaper pages based on date range.
+
+        Args:
+            date_start: Start date
+            date_end: End date
+            lccn: LCCN of the newspaper (used to check publication frequency)
+
+        Returns:
+            Tuple of (estimated_pages, estimated_result_pages, is_large_download)
+        """
+        try:
+            from datetime import datetime
+
+            # Parse dates
+            if isinstance(date_start, str):
+                start_date = datetime.strptime(date_start, "%Y-%m-%d").date()
+            else:
+                start_date = date_start
+
+            if isinstance(date_end, str):
+                end_date = datetime.strptime(date_end, "%Y-%m-%d").date()
+            else:
+                end_date = end_date
+
+            # Calculate days in the range
+            delta = end_date - start_date
+            days = delta.days + 1  # Include both start and end dates
+
+            # Default to a typical daily newspaper (8 pages weekday, 16 Sunday)
+            weekly_pages = 56  # (5 days × 8 pages) + (1 day × 16 pages)
+            days_per_week = 6  # Assuming Sunday off, Monday-Saturday publication
+
+            # LCCN-specific adjustments (can be expanded with more newspapers)
+            if lccn:
+                # Seattle Post-Intelligencer
+                if "sn83045604" in lccn:  # Seattle Post-Intelligencer
+                    weekly_pages = 56  # As specified in your example
+                    days_per_week = 6
+                # Add more newspapers here with their specific page counts
+                # elif "some_other_lccn" in lccn:
+                #     weekly_pages = X
+                #     days_per_week = Y
+
+            # Calculate estimated pages
+            weeks = days / 7
+            publishing_days = min(days, weeks * days_per_week)  # Account for non-publishing days
+            estimated_pages = int(weeks * weekly_pages)
+
+            # Calculate how many result pages this would be (20 newspaper pages per result page)
+            estimated_result_pages = (estimated_pages + 19) // 20  # Ceiling division
+
+            # Determine if this is a large download (exceeds our 100 result pages limit)
+            is_large_download = estimated_result_pages > 100
+
+            return estimated_pages, estimated_result_pages, is_large_download
+
+        except Exception as e:
+            print(f"Error estimating pages: {e}")
+            # Default to a conservative estimate in case of error
+            return 500, 25, False
+    
+    def download_completed(self, results):
+        """
+        Handle download completion.
+
+        Args:
+            results: Download/import results
+        """
+        successful = results.get('successful', [])
+        failed = results.get('failed', [])
+        skipped = results.get('skipped', [])  # Get skipped items
+        total_downloaded = results.get('total_downloaded', 0)
+        total_imported = results.get('total_imported', 0)
+        total_skipped = results.get('total_skipped', 0)  # Get total skipped count
+
+        # Update UI
+        self.progress_bar.setValue(100)
+
+        if self.import_check.isChecked():
+            self.status_label.setText(
+                f"Download and import completed: {len(successful)} imported, {len(failed)} failed, {len(skipped)} skipped."
+            )
+        else:
+            self.status_label.setText(
+                f"Download completed: {total_downloaded} downloaded, {total_skipped} skipped."
+            )
+
+        # Show result message
+        message = f"Operation completed.\n\n"
+
+        if self.import_check.isChecked():
+            message += f"Downloaded: {total_downloaded} items.\n"
+            message += f"Successfully imported: {total_imported} items.\n"
+            message += f"Skipped (already in database): {total_skipped} items.\n"
+            message += f"Failed imports: {len(failed)} items.\n\n"
+
+            if skipped and len(skipped) > 0:
+                message += "Skipped items (first 5):\n"
+                for item in skipped[:5]:  # Show first 5 skipped items
+                    title = item.get('title', 'Unknown')
+                    date = item.get('issue_date', 'Unknown date')
+                    message += f"• {title} - {date}: Already in database\n"
+
+                if len(skipped) > 5:
+                    message += f"...and {len(skipped) - 5} more.\n\n"
+                else:
+                    message += "\n"
+
+            if failed:
+                message += "Failed items:\n"
+                for failure in failed[:5]:  # Show first 5 failures
+                    message += f"• {failure.get('lccn', 'Unknown')}: {failure['error']}\n"
+
+                if len(failed) > 5:
+                    message += f"...and {len(failed) - 5} more.\n"
+        else:
+            message += f"Successfully downloaded: {total_downloaded} items.\n"
+            message += f"Skipped (already in database): {total_skipped} items.\n"
+            message += f"Download directory: {self.download_directory}\n"
+
+        QMessageBox.information(self, "Download Results", message)
+
+        # Re-enable UI
+        self.set_ui_enabled(True)
+    
+    def download_error(self, error_message):
+        """
+        Handle download error.
+        
+        Args:
+            error_message: Error message
+        """
+        self.status_label.setText(f"Download failed: {error_message}")
+        
+        QMessageBox.critical(self, "Download Error", f"Download failed: {error_message}")
+        
+        # Re-enable UI
+        self.set_ui_enabled(True)
+    
+    def on_map_state_selected(self, state_abbrev):
+        """
+        Handle state selection from the clickable map.
+
+        This updates the state combo box to match the map selection.
+
+        Args:
+            state_abbrev: The two-letter state abbreviation that was selected
+        """
+        print(f"ChroniclingAmericaTab: Received state selection from map: {state_abbrev}")
+
+        # Temporarily block signals to prevent recursion
+        self.state_combo.blockSignals(True)
+
+        # Find the corresponding state in the combo box
+        for i in range(self.state_combo.count()):
+            if self.state_combo.itemData(i) == state_abbrev:
+                print(f"Found matching state in combo box at index {i}, setting current index")
+                # Select this state in the combo box
+                self.state_combo.setCurrentIndex(i)
+                break
+        else:
+            print(f"Warning: State {state_abbrev} not found in combo box")
+
+        # Re-enable signals
+        self.state_combo.blockSignals(False)
+
+        # Manually call the state changed handler
+        self.handle_state_selection(from_map=True)
+
+    def on_state_changed(self, index):
+        """
+        Handle state selection change from the combo box.
+
+        Args:
+            index: Selected index in the state combo box
+        """
+        # Call the common state selection handler
+        self.handle_state_selection(from_combo=True)
+
+    def handle_state_selection(self, from_map=False, from_combo=False):
+        """
+        Common handler for state selection changes from both map and combo box.
+
+        Args:
+            from_map: Whether this call originated from the map
+            from_combo: Whether this call originated from the combo box
+        """
+        # Get the selected state abbreviation and name
+        state_abbrev = self.state_combo.currentData()
+        state_name = self.state_combo.currentText()
+
+        print(f"State changed to: {state_name} ({state_abbrev}), from_map={from_map}, from_combo={from_combo}")
+
+        # Update the map selection if the change came from the combo box
+        # and this isn't an "All" selection
+        if from_combo and not from_map:
+            # Temporarily block signals to prevent recursion
+            self.us_map.blockSignals(True)
+
+            if state_abbrev:
+                self.us_map.set_selected_state(state_abbrev)
+            else:
+                # If "All" is selected (empty state_abbrev), clear the map selection
+                self.us_map.map_widget.selected_state = None
+                self.us_map.map_widget.update()
+
+            # Re-enable signals
+            self.us_map.blockSignals(False)
+
+        # Now load newspapers for the selected state
+        if not state_name or state_name == "All":
+            # Clear the newspaper combo box except for "Select Title"
+            self.newspaper_combo.clear()
+            self.newspaper_combo.addItem("Select Title", "")
+            self.status_label.setText("Select a state to view available newspapers")
+            return
+
+        self.status_label.setText(f"Loading newspapers for {state_name}...")
+        self.set_ui_enabled(False)
+
+        # Start a worker thread to fetch newspapers for this state
+        # If we've already fetched them, use the cached data
+        if state_abbrev in self.newspapers_by_state:
+            # Use cached data
+            print(f"Using cached newspaper data for {state_name}")
+            self.update_newspaper_combo(self.newspapers_by_state[state_abbrev])
+        else:
+            # Fetch newspapers for this state
+            print(f"Fetching new newspaper data for {state_name}")
+            self.fetch_newspapers_for_state(state_abbrev, state_name)
+    
+    def fetch_newspapers_for_state(self, state_abbrev, state_name):
+        """
+        Fetch newspapers for a specific state.
+
+        Args:
+            state_abbrev: Two-letter state abbreviation
+            state_name: Full state name
+        """
+        try:
+            # URL for the newspaper list
+            url = f"https://chroniclingamerica.loc.gov/newspapers/"
+            params = {'state': state_name}
+
+            # Show status
+            self.status_label.setText(f"Fetching newspapers for {state_name}...")
+            self.progress_bar.setRange(0, 0)  # Set to indeterminate
+
+            # Make the request to get the HTML page - no need for JSON format
+            response = requests.get(url, params=params)
+            html = response.text
+
+            # Save the HTML to a file for debugging
+            with open("state_newspapers.html", "w", encoding="utf-8") as f:
+                f.write(html)
+
+            # Use a simpler, more direct approach to extract newspaper information from table rows
+            # This pattern matches the specific HTML structure of the Chronicling America website
+            row_pattern = r'<tr[^>]*>(.*?)</tr>'
+            row_regex = re.compile(row_pattern, re.DOTALL)
+            rows = row_regex.findall(html)
+
+            newspapers = []
+            lccn_count = 0
+
+            for row_html in rows:
+                # Check for title and publication info in a specific format
+                title_match = re.search(r'<td><a href="/lccn/([^/]+)/"><strong>([^<]+)</strong></a><br />([^<]+)</td>', row_html)
+                if not title_match:
+                    continue
+
+                lccn_count += 1
+                lccn = title_match.group(1)
+                title = title_match.group(2)
+                info = title_match.group(3).strip()  # Contains place and date info
+
+                # Extract earliest and latest dates from the row
+                earliest_match = re.search(r'<td><a href="/lccn/[^/]+/(\d{4}-\d{2}-\d{2})/ed-1/">(\d{4}-\d{2}-\d{2})</a></td>', row_html)
+                latest_match = re.search(r'<td><a href="/lccn/[^/]+/\d{4}-\d{2}-\d{2}/ed-1/">(\d{4}-\d{2}-\d{2})</a></td>\s*<td class="last">', row_html)
+
+                # Parse place and date range from the info string
+                place = ""
+                date_range = ""
+
+                # First try to extract the place (city, state)
+                if "," in info:
+                    place_parts = info.split(",")
+                    place = place_parts[0].strip()
+
+                # Then try to extract date range from the info string
+                date_match = re.search(r'(\d{4})-(\d{4}|\d{2}\?\?)', info)
+                if date_match:
+                    date_range = date_match.group(0)
+                elif earliest_match and latest_match:
+                    earliest = earliest_match.group(2)
+                    latest = latest_match.group(1)
+                    # Format to show just years rather than full dates
+                    earliest_year = earliest.split('-')[0]
+                    latest_year = latest.split('-')[0]
+                    if earliest_year == latest_year:
+                        date_range = earliest_year
+                    else:
+                        date_range = f"{earliest_year} to {latest_year}"
+
+                # Create a sortable title (for alphabetical sorting)
+                sort_title = title
+                if title.lower().startswith("the "):
+                    sort_title = title[4:]
+
+                # Create display text in the exact format requested:
+                # Publication Name (LCCN), Publication City, First Issue Date to Latest Issue Date
+                display_text = f"{title} ({lccn})"
+                if place:
+                    display_text += f", {place}"
+                if date_range:
+                    display_text += f", {date_range}"
+
+                # Add newspaper to the list
+                newspapers.append({
+                    'lccn': lccn,
+                    'title': title,
+                    'sort_title': sort_title,
+                    'place': place,
+                    'date_range': date_range,
+                    'display_text': display_text
+                })
+
+            # Log what we found
+            print(f"Found {lccn_count} LCCNs and extracted {len(newspapers)} newspapers for {state_name}")
+
+            # Store the newspapers for this state
+            self.newspapers_by_state[state_abbrev] = newspapers
+
+            # Update the UI
+            self.update_newspaper_combo(newspapers)
+
+        except Exception as e:
+            # In case of error, update the UI with a message
+            import traceback
+            print(f"Error fetching newspapers: {str(e)}")
+            traceback.print_exc()
+            self.status_label.setText(f"Error loading newspapers: {str(e)}")
+            self.set_ui_enabled(True)
+            self.progress_bar.setRange(0, 100)  # Reset progress bar
+    
+    def update_newspaper_combo(self, newspapers):
+        """
+        Update the newspaper combo box with a list of newspapers.
+
+        Args:
+            newspapers: List of newspaper objects
+        """
+        # Clear the current items
+        self.newspaper_combo.clear()
+
+        # Add "Select Title" option at the top
+        self.newspaper_combo.addItem("Select Title", "")
+
+        try:
+            # Sort newspapers alphabetically by sort_title (ignoring "The " prefix)
+            sorted_newspapers = sorted(newspapers, key=lambda x: x.get('sort_title', '').lower())
+
+            # Log the first few newspapers for debugging
+            if sorted_newspapers:
+                print(f"First 3 newspapers to be displayed:")
+                for i, newspaper in enumerate(sorted_newspapers[:3]):
+                    print(f"  {i+1}. LCCN: {newspaper.get('lccn', '')}")
+                    print(f"     Title: {newspaper.get('title', '')}")
+                    print(f"     Place: {newspaper.get('place', '')}")
+                    print(f"     Date Range: {newspaper.get('date_range', '')}")
+                    print(f"     Display Text: {newspaper.get('display_text', '')}")
+
+            # Add newspapers to the combo box
+            for newspaper in sorted_newspapers:
+                lccn = newspaper.get('lccn', '')
+                display_text = newspaper.get('display_text', '')
+
+                # If display_text is empty or wasn't created, build it here as a fallback
+                if not display_text:
+                    title = newspaper.get('title', '')
+                    place = newspaper.get('place', '')
+                    date_range = newspaper.get('date_range', '')
+
+                    display_text = f"{title} ({lccn})"
+                    if place:
+                        display_text += f", {place}"
+                    if date_range:
+                        display_text += f", {date_range}"
+
+                # Add the item to the combo box with the LCCN as data
+                self.newspaper_combo.addItem(display_text, lccn)
+
+            # Log what we added
+            if newspapers:
+                print(f"Added {len(newspapers)} newspapers to dropdown")
+
+        except Exception as e:
+            import traceback
+            print(f"Error sorting/displaying newspapers: {str(e)}")
+            traceback.print_exc()
+
+            # Fallback - just add them unsorted if there's an error
+            for newspaper in newspapers:
+                lccn = newspaper.get('lccn', '')
+                title = newspaper.get('title', f"Newspaper ({lccn})")
+                self.newspaper_combo.addItem(f"{title} ({lccn})", lccn)
+
+        # Re-enable the UI
+        self.set_ui_enabled(True)
+        self.progress_bar.setRange(0, 100)  # Reset progress bar
+        self.status_label.setText(f"Found {len(newspapers)} newspapers for {self.state_combo.currentText()}")
+    
+    def on_custom_lccn_toggled(self, state):
+        """
+        Handle custom LCCN checkbox toggle.
+
+        Args:
+            state: Checkbox state (Qt.Checked or Qt.Unchecked)
+        """
+        # Enable or disable the LCCN edit field and search button
+        is_checked = state == Qt.Checked
+        self.lccn_edit.setEnabled(is_checked)
+        self.lccn_search_button.setEnabled(is_checked)
+
+        # Disable state and newspaper selections if custom LCCN is enabled
+        self.state_combo.setEnabled(not is_checked)
+        self.newspaper_combo.setEnabled(not is_checked)
+
+        # Also disable the map if custom LCCN is enabled
+        self.us_map.setEnabled(not is_checked)
+
+        # Clear the LCCN field if unchecked
+        if not is_checked:
+            self.lccn_edit.clear()
+    
+    def on_tab_changed(self, index):
+        """
+        Handle changes between the Search tab and Bulk OCR tab.
+
+        Args:
+            index: Index of the selected tab
+        """
+        if index == 1:  # Bulk OCR tab
+            # When switching to the bulk OCR tab, we can refresh the task list
+            # This ensures that any new bulk tasks created elsewhere are shown
+            try:
+                # Find the monitor tab within the bulk OCR tab
+                monitors = self.bulk_ocr_tab.findChildren(BulkProcessingMonitor)
+                if monitors:
+                    # Refresh the task list
+                    monitors[0].refresh_tasks()
+            except Exception as e:
+                logger.error(f"Error refreshing bulk OCR monitor: {e}")
+
+    def on_lccn_search(self):
+        """
+        Handle custom LCCN search button click.
+
+        Searches for a newspaper with the specified LCCN and updates
+        the state and newspaper selections if found.
+        """
+        lccn = self.lccn_edit.text().strip()
+        
+        if not lccn:
+            self.status_label.setText("Please enter an LCCN")
+            return
+        
+        self.status_label.setText(f"Searching for LCCN: {lccn}...")
+        
+        # Fetch newspaper details by LCCN
+        try:
+            url = f"https://chroniclingamerica.loc.gov/lccn/{lccn}.json"
+            response = requests.get(url)
+            
+            if response.status_code == 200:
+                # Parse the response
+                try:
+                    data = response.json()
+                    
+                    # Extract newspaper details
+                    title = data.get('name', f"Newspaper ({lccn})")
+                    place = data.get('place', [{}])[0].get('name', '')
+                    
+                    # Try to determine the state from place
+                    state_name = None
+                    state_abbrev = None
+                    
+                    # Extract state abbreviation from place if possible
+                    if place:
+                        # Extract state from place (usually "City, State")
+                        parts = place.split(',')
+                        if len(parts) > 1:
+                            state_part = parts[1].strip()
+                            
+                            # Try to match with a state in our combo box
+                            for i in range(self.state_combo.count()):
+                                if state_part in self.state_combo.itemText(i):
+                                    state_name = self.state_combo.itemText(i)
+                                    state_abbrev = self.state_combo.itemData(i)
+                                    break
+                    
+                    # Update UI to show the newspaper details
+                    self.status_label.setText(f"Found: {title} from {place}")
+                    
+                    # If we found a state, select it
+                    if state_name:
+                        # Temporarily disconnect the state change signal to avoid triggering newspaper reload
+                        self.state_combo.currentIndexChanged.disconnect(self.on_state_changed)
+                        
+                        # Set the state
+                        index = self.state_combo.findText(state_name)
+                        if index >= 0:
+                            self.state_combo.setCurrentIndex(index)
+                        
+                        # Reconnect the signal
+                        self.state_combo.currentIndexChanged.connect(self.on_state_changed)
+                        
+                        # Load newspapers for this state if not already loaded
+                        if state_abbrev not in self.newspapers_by_state:
+                            self.fetch_newspapers_for_state(state_abbrev, state_name)
+                        else:
+                            self.update_newspaper_combo(self.newspapers_by_state[state_abbrev])
+                    
+                    # Try to find this LCCN in the newspaper combo box
+                    index = self.newspaper_combo.findData(lccn)
+                    if index >= 0:
+                        self.newspaper_combo.setCurrentIndex(index)
+                    else:
+                        # Add this newspaper to the combo box
+                        self.newspaper_combo.addItem(f"{title} ({lccn})", lccn)
+                        self.newspaper_combo.setCurrentIndex(self.newspaper_combo.count() - 1)
+                    
+                    return
+                    
+                except json.JSONDecodeError:
+                    self.status_label.setText(f"Error parsing response for LCCN: {lccn}")
+            else:
+                self.status_label.setText(f"Error: LCCN {lccn} not found")
+        
+        except Exception as e:
+            self.status_label.setText(f"Error searching for LCCN: {str(e)}")
+            
+        # Re-enable custom LCCN mode even if search failed
+        self.custom_lccn_check.setChecked(True)
+    
+    def set_ui_enabled(self, enabled):
+        """
+        Enable or disable UI elements during operations.
+
+        Args:
+            enabled: Whether UI should be enabled
+        """
+        # Only enable state and newspaper selectors if custom LCCN is unchecked
+        custom_lccn_enabled = self.custom_lccn_check.isChecked()
+        self.state_combo.setEnabled(enabled and not custom_lccn_enabled)
+        self.newspaper_combo.setEnabled(enabled and not custom_lccn_enabled)
+
+        # Also enable/disable the map
+        self.us_map.setEnabled(enabled and not custom_lccn_enabled)
+
+        # Custom LCCN controls
+        self.custom_lccn_check.setEnabled(enabled)
+        self.lccn_edit.setEnabled(enabled and custom_lccn_enabled)
+        self.lccn_search_button.setEnabled(enabled and custom_lccn_enabled)
+
+        # Date range controls
+        self.date_start_edit.setEnabled(enabled)
+        self.date_end_edit.setEnabled(enabled)
+
+        # Keywords field
+        self.keywords_edit.setEnabled(enabled)
+
+        # Search button
+        self.search_button.setEnabled(enabled)
+
+        # Results area
+        self.results_list.setEnabled(enabled)
+        self.prev_button.setEnabled(enabled and self.current_page > 1)
+        self.next_button.setEnabled(enabled and self.current_page < self.pagination_info.get('total_pages', 1))
+
+        # Download options
+        self.download_pdf_check.setEnabled(enabled)
+        self.download_jp2_check.setEnabled(enabled)
+        self.download_ocr_check.setEnabled(enabled)
+        self.download_json_check.setEnabled(enabled)
+        self.import_check.setEnabled(enabled)
+
+        # Download buttons
+        has_results = enabled and self.results_list.count() > 0
+        has_selection = enabled and len(self.results_list.selectedItems()) > 0
+
+        self.download_selected_button.setEnabled(enabled and has_selection)
+        self.download_all_button.setEnabled(enabled and has_results)
+
+        # Bulk OCR button - always enabled to allow easy access to the Bulk OCR tab
+        self.ocr_button.setEnabled(enabled)
+
+    def open_bulk_ocr(self):
+        """
+        Switch to the Bulk OCR tab and open the Bulk OCR Dialog.
+
+        This provides a direct way to go from search/download to bulk OCR processing.
+        """
+        # Switch to the bulk OCR tab
+        self.tab_widget.setCurrentIndex(1)
+
+        # Find the monitor widget and trigger the new task button
+        try:
+            monitors = self.bulk_ocr_tab.findChildren(BulkProcessingMonitor)
+            if monitors:
+                # Call the new_bulk_task method on the monitor
+                monitors[0].new_bulk_task()
+        except Exception as e:
+            logger.error(f"Error opening bulk OCR dialog: {e}")
+
+            # Fallback: Just switch to the tab
+            QMessageBox.warning(
+                self,
+                "Bulk OCR",
+                "Please use the 'New Bulk OCR Task' button in the Bulk OCR Processing tab."
+            )
+
+    def verify_date_integration(self, lccn="sn83045604"):
+        """
+        Verify that the earliest and latest issue date integration is working correctly.
+
+        This test function can be called for debugging purposes to check if
+        the date detection features are properly integrated with the UI.
+
+        Args:
+            lccn: The LCCN to test with (default is Seattle Post-Intelligencer)
+
+        Returns:
+            A dictionary with test results
+        """
+        results = {
+            "success": False,
+            "using_improved_client": USING_IMPROVED_CLIENT,
+            "earliest_date_available": False,
+            "latest_date_available": False,
+            "newspaper_title": None,
+            "earliest_date": None,
+            "latest_date": None,
+            "messages": []
+        }
+
+        try:
+            if not API_AVAILABLE:
+                results["messages"].append("ChroniclingAmerica API is not available")
+                return results
+
+            if not USING_IMPROVED_CLIENT:
+                results["messages"].append("Not using the improved client - date detection not available")
+                return results
+
+            # Check if the date module is available
+            try:
+                from api.chronicling_america_earliest_dates import get_earliest_date, get_latest_date, get_newspaper_title
+
+                # Get the title
+                title = get_newspaper_title(lccn)
+                if title:
+                    results["newspaper_title"] = title
+                    results["messages"].append(f"Found newspaper title: {title}")
+                else:
+                    results["messages"].append(f"Could not find title for LCCN {lccn}")
+
+                # Get the earliest date
+                earliest_date = get_earliest_date(lccn)
+                if earliest_date:
+                    results["earliest_date"] = earliest_date.isoformat()
+                    results["earliest_date_available"] = True
+                    results["messages"].append(f"Found earliest issue date: {earliest_date}")
+                else:
+                    results["messages"].append(f"Could not find earliest date for LCCN {lccn} in module")
+
+                    # Try to get it directly from the client
+                    client = ChroniclingAmericaClient(output_directory=self.download_directory)
+                    if hasattr(client, 'get_earliest_issue_date'):
+                        earliest_date = client.get_earliest_issue_date(lccn)
+                        if earliest_date:
+                            results["earliest_date"] = earliest_date.isoformat()
+                            results["earliest_date_available"] = True
+                            results["messages"].append(f"Found earliest issue date from client: {earliest_date}")
+                        else:
+                            results["messages"].append("Client could not find earliest date")
+                    else:
+                        results["messages"].append("Client does not support get_earliest_issue_date")
+
+                # Get the latest date
+                latest_date = get_latest_date(lccn)
+                if latest_date:
+                    results["latest_date"] = latest_date.isoformat()
+                    results["latest_date_available"] = True
+                    results["messages"].append(f"Found latest issue date: {latest_date}")
+                else:
+                    results["messages"].append(f"Could not find latest date for LCCN {lccn} in module")
+
+                    # Try to get it directly from the client
+                    client = ChroniclingAmericaClient(output_directory=self.download_directory)
+                    if hasattr(client, 'get_latest_issue_date'):
+                        latest_date = client.get_latest_issue_date(lccn)
+                        if latest_date:
+                            results["latest_date"] = latest_date.isoformat()
+                            results["latest_date_available"] = True
+                            results["messages"].append(f"Found latest issue date from client: {latest_date}")
+                        else:
+                            results["messages"].append("Client could not find latest date")
+                    else:
+                        results["messages"].append("Client does not support get_latest_issue_date")
+
+                # Set success flag - require both dates for full success
+                results["success"] = results["earliest_date_available"] and results["latest_date_available"]
+
+            except ImportError as e:
+                results["messages"].append(f"Could not import date module: {e}")
+
+        except Exception as e:
+            results["messages"].append(f"Error verifying integration: {e}")
+
+        return results

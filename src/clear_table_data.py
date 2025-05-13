@@ -38,4 +38,5 @@ if __name__ == "__main__":
     # clear_table("EventLocations")
     # clear_table("EventEntities")
     # clear_table("EventMetadata")
+    # clear_table("NewspaperPages")
     pass

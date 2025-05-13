@@ -1,7 +1,33 @@
+# Core packages
 packaging==24.1
-pillow==10.4.0
-PyPDF2==3.0.1
 PyQt5==5.15.11
 PyQt5-Qt5==5.15.2
 PyQt5_sip==12.15.0
+PyPDF2==3.0.1
+
+# Image processing and OCR
+pillow==10.4.0
 pytesseract==0.3.13
+opencv-python==4.9.0.80
+scikit-image==0.22.0
+numpy==1.26.4
+
+# HTML/XML parsing
+beautifulsoup4==4.12.3
+lxml==5.1.0
+
+# Text processing and matching
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.23.0
+
+# Database access
+sqlite3==0.0.0  # Part of Python standard library
+sqlalchemy==2.0.27  # Optional, for more advanced ORM features
+
+# Network requests
+requests==2.31.0
+urllib3==2.1.0
+
+# Other utilities
+tqdm==4.66.2  # Progress bars
+python-dateutil==2.8.2  # Date parsing

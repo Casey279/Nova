@@ -2,15 +2,27 @@
 
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# Ensure the src directory is in the path
+src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
+print(f"Research import tab - Python path: {sys.path}")
 from services import ImportService, SourceService, DatabaseError
 from utils import file_utils, date_utils
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                             QLabel, QFileDialog, QListWidget, QListWidgetItem,
                             QMessageBox, QProgressBar, QGroupBox, QComboBox,
-                            QCheckBox, QLineEdit, QTextEdit, QGridLayout, QSplitter)
+                            QCheckBox, QLineEdit, QTextEdit, QGridLayout, QSplitter,
+                            QTabWidget)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+
+# Import subtabs
+try:
+    from .chronicling_america_tab import ChroniclingAmericaTab
+    CHRONICLING_AMERICA_AVAILABLE = True
+except ImportError:
+    CHRONICLING_AMERICA_AVAILABLE = False
 
 
 
@@ -88,6 +100,30 @@ class ResearchImportTab(QWidget):
     def setup_ui(self):
         """Set up the UI components."""
         main_layout = QVBoxLayout(self)
+        
+        # Create tab widget for subtabs
+        self.tab_widget = QTabWidget()
+        
+        # Create the file import tab (original functionality)
+        self.file_import_tab = QWidget()
+        self.setup_file_import_tab()
+        self.tab_widget.addTab(self.file_import_tab, "File Import")
+        
+        # Add ChroniclingAmerica tab if available
+        if CHRONICLING_AMERICA_AVAILABLE:
+            self.chronicling_america_tab = ChroniclingAmericaTab(self.db_path)
+            self.tab_widget.addTab(self.chronicling_america_tab, "Chronicling America")
+        
+        # Add the tab widget to the main layout
+        main_layout.addWidget(self.tab_widget)
+        
+        # Status label at the bottom of the main tab
+        self.main_status_label = QLabel("")
+        main_layout.addWidget(self.main_status_label)
+    
+    def setup_file_import_tab(self):
+        """Set up the file import tab components."""
+        file_import_layout = QVBoxLayout(self.file_import_tab)
         
         # Create a splitter for resizable sections
         splitter = QSplitter(Qt.Vertical)
@@ -240,7 +276,7 @@ class ResearchImportTab(QWidget):
         splitter.setSizes([500, 300, 200])
         
         # Add splitter to main layout
-        main_layout.addWidget(splitter)
+        file_import_layout.addWidget(splitter)
         
         # Connect signals
         self.file_list.itemSelectionChanged.connect(self.update_metadata_preview)
@@ -332,11 +368,24 @@ class ResearchImportTab(QWidget):
         self.project_folder = project_folder
         self.last_directory = project_folder
         
-        # Update UI to show current project
+        # Update main UI to show current project
         project_name = os.path.basename(project_folder)
+        self.main_status_label.setText(f"Current Project: {project_name}")
+        
+        # Update status in the file import tab
         self.status_label.setText(f"Current Project: {project_name}")
         
-        # Clear existing files
+        # Create downloads directory for the project
+        downloads_dir = os.path.join(project_folder, "downloads")
+        os.makedirs(downloads_dir, exist_ok=True)
+        
+        # Update chronicling america tab if available
+        if CHRONICLING_AMERICA_AVAILABLE and hasattr(self, 'chronicling_america_tab'):
+            chronicling_america_dir = os.path.join(downloads_dir, "chroniclingamerica")
+            os.makedirs(chronicling_america_dir, exist_ok=True)
+            self.chronicling_america_tab.download_directory = chronicling_america_dir
+        
+        # Clear existing files in the file import tab
         self.clear_file_list()
         
         # Optionally, list files from the project folder

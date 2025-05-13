@@ -196,10 +196,10 @@ class DatabaseManager:
             # Check if Status column exists
             self.cursor.execute("PRAGMA table_info(Events)")
             columns = [column[1] for column in self.cursor.fetchall()]
-            
+
             if 'Status' not in columns:
                 self.cursor.execute("""
-                    ALTER TABLE Events 
+                    ALTER TABLE Events
                     ADD COLUMN Status TEXT DEFAULT 'active'
                 """)
                 self.conn.commit()
@@ -207,8 +207,8 @@ class DatabaseManager:
             else:
                 print("Status column already exists in Events table")
         except sqlite3.Error as e:
-            print(f"Error adding Status column: {e}")            
-            
+            print(f"Error adding Status column: {e}")
+
 
     def insert_event_metadata(self, event_id, key, value):
         try:

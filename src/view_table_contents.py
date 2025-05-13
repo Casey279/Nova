@@ -46,6 +46,7 @@ if __name__ == "__main__":
     # view_table_contents("EventLocations")
     # view_table_contents("EventEntities")
     # view_table_contents("EventMetadata")
+    # view_table_contents("NewspaperPages")
 
     # Transient Tables
     # view_table_contents("TransientEvents")
